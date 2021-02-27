@@ -3,11 +3,16 @@
 This project takes a .NET Core-based reverse proxy and combines it with a Kubernetes client to form a highly scalable Ingress Controller.
 
 It is based on the following technology:
+
 - ASP.NET 5.0
 - Microsoft's Reverse Proxy - https://microsoft.github.io/reverse-proxy/articles/getting_started.html
 - Kubernetes API Client for .NET - https://github.com/kubernetes-client/csharp
 
-## Development
+This is still very much a new project... still lots of work ahead!
+
+## Getting Started
+
+Currently, this project is only available in source code form, so you will need to compile/build yourself.
 
 ## Prerequisties
 
