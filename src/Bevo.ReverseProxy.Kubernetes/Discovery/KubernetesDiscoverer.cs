@@ -15,6 +15,7 @@ namespace Bevo.ReverseProxy.Kube.Discovery
         private const string MatchingIngressClass = "nginx";
 
         private readonly ILogger<KubernetesDiscoverer> _logger;
+
         private readonly Kubernetes _client;
 
         public KubernetesDiscoverer(ILogger<KubernetesDiscoverer> logger)
@@ -53,20 +54,16 @@ namespace Bevo.ReverseProxy.Kube.Discovery
                     foreach (var e in endponts.Items)
                     {
                         var firstSubset = e.Subsets.First();
+                        string addresses = string.Empty;
 
-                        var addresses = string.Join(",", firstSubset.Addresses.Select(a => $"{a.Ip}:{firstSubset.Ports[0].Port}"));
+                        if (firstSubset.Addresses != null)
+                        {
+                            addresses = string.Join(",", firstSubset.Addresses.Select(a => $"{a.Ip}:{firstSubset.Ports[0].Port}"));
+                        }
+
                         var msg = firstSubset.NotReadyAddresses != null ? "NOT READY: " + string.Join(",", firstSubset.NotReadyAddresses.Select(a => a.Ip)) : string.Empty;
                         sb.AppendLine($"\t{e.Metadata.Name} has addresses {addresses} {msg}");
                     }
-
-                    //sb.AppendLine($"Found {runningPods.Length} pods in namespace {ns}");
-
-                    //// Use the Spec.Selectors on the service to find the matching pods
-                    //// Selectors can be combined with a comma: https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors/#chained-selectors
-                    //foreach (var p in runningPods)
-                    //{
-                    //    sb.AppendLine($"\t{p.Metadata.Name} is {p.Status.PodIP}");
-                    //}
 
                     _logger.LogInformation(sb.ToString());
                 }
