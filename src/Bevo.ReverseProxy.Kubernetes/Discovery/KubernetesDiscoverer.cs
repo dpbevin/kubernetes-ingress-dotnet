@@ -22,9 +22,7 @@ namespace Bevo.ReverseProxy.Kube.Discovery
         {
             _logger = logger;
 
-            //var config = KubernetesClientConfiguration.InClusterConfig();
-            var config = KubernetesClientConfiguration.BuildConfigFromConfigFile();
-
+            var config = this.LocateKubeConfig();
             _client = new Kubernetes(config);
         }
 
@@ -79,6 +77,20 @@ namespace Bevo.ReverseProxy.Kube.Discovery
 
             Log.ServiceDiscovered(_logger, discoveredBackends.Count, discoveredRoutes.Count);
             return (discoveredRoutes, discoveredBackends.Values.ToList());
+        }
+
+        private KubernetesClientConfiguration LocateKubeConfig()
+        {
+            // Attempt to dynamically determine between in-cluster and host (debug) development...
+            var serviceHost = Environment.GetEnvironmentVariable("KUBERNETES_SERVICE_HOST");
+            var servicePort = Environment.GetEnvironmentVariable("KUBERNETES_SERVICE_PORT");
+
+            if (!string.IsNullOrWhiteSpace(serviceHost) && !string.IsNullOrWhiteSpace(servicePort))
+            {
+                return KubernetesClientConfiguration.InClusterConfig();
+            }
+
+            return KubernetesClientConfiguration.BuildConfigFromConfigFile();
         }
 
         private async Task<IEnumerable<k8s.Models.Extensionsv1beta1Ingress>> FindMatchingIngressesAsync(CancellationToken cancellation)
