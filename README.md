@@ -15,6 +15,7 @@ This is still very much a new project... still lots of work ahead!
 There are plenty of [Ingress Controllers](https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/) out there but this is (we believe) the first one that uses .NET. Even the Azure AKS Gateway is written in Go.
 
 Given the massive improvements to performance in .NET, in particular, the Kestrel web server, it seems like a perfectly valid option in the Ingress Controller space.
+For any skeptics out there, you can check out this independent benchmark: https://www.techempower.com/benchmarks/#section=data-r20&hw=ph&test=plaintext
 
 So why C# and .NET?
 
