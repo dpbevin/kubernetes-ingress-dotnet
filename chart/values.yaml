@@ -2,17 +2,22 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
-replicaCount: 1
-
-environment: Development
-
-nodePort: 30030
-
 image:
   repository: dpb/ingress-dotnet
   # Blank tag implies that the Chart.AppVersion will be used ("latest")
   tag:
   pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+## Name of the ASP.NET Core environment (allows config changes via appsettings.ENVIRONMENT.json)
+environment: Development
+
+## Port on which to bind for the ingress controller. NodePort always used.
+nodePort: 30030
+
+## Name of the ingress class to route through this controller. NOT YET SUPPORTED!
+ingressClass: dotnet
 
 healthChecks:
   enabled: false

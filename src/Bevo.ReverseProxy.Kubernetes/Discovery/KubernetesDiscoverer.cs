@@ -12,7 +12,7 @@ namespace Bevo.ReverseProxy.Kube.Discovery
 {
     public class KubernetesDiscoverer : IKubernetesDiscoverer
     {
-        private const string MatchingIngressClass = "nginx";
+        private const string MatchingIngressClass = "dotnet";
 
         private readonly ILogger<KubernetesDiscoverer> _logger;
 
@@ -51,6 +51,7 @@ namespace Bevo.ReverseProxy.Kube.Discovery
                     sb.AppendLine($"Found {endponts.Items.Count} endponts in namespace {ns}");
                     foreach (var e in endponts.Items)
                     {
+                        // TODO - Handle multiple ports and match them up with services.
                         var firstSubset = e.Subsets.First();
                         string addresses = string.Empty;
 
@@ -63,7 +64,7 @@ namespace Bevo.ReverseProxy.Kube.Discovery
                         sb.AppendLine($"\t{e.Metadata.Name} has addresses {addresses} {msg}");
                     }
 
-                    _logger.LogInformation(sb.ToString());
+                    _logger.LogDebug(sb.ToString());
                 }
             }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
@@ -97,8 +98,10 @@ namespace Bevo.ReverseProxy.Kube.Discovery
         {
             var ingresses = await _client.ListIngressForAllNamespacesAsync(cancellationToken: cancellation);
 
+            // Looking for both v1.18 and deprecated mechanisms of identifying ingress class. See https://kubernetes.io/blog/2020/04/02/improvements-to-the-ingress-api-in-kubernetes-1.18/
             var matchedIngresses = ingresses.Items
-                .Where(i => i.Metadata.Annotations.TryGetValue("kubernetes.io/ingress.class", out var ingressClass) && string.Equals(ingressClass, MatchingIngressClass, StringComparison.OrdinalIgnoreCase))
+                .Where(i => string.Equals(i.Spec.IngressClassName, MatchingIngressClass, StringComparison.OrdinalIgnoreCase) ||
+                            i.Metadata.Annotations.TryGetValue("kubernetes.io/ingress.class", out var ingressClass) && string.Equals(ingressClass, MatchingIngressClass, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(i => i.Metadata.CreationTimestamp)
                 .ToArray();
 
@@ -119,7 +122,7 @@ namespace Bevo.ReverseProxy.Kube.Discovery
                 }
             }
 
-            _logger.LogDebug(ingressDump.ToString());
+            _logger.LogInformation(ingressDump.ToString());
 
             return matchedIngresses;
         }
