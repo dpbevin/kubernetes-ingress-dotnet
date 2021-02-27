@@ -12,13 +12,15 @@ This is still very much a new project... still lots of work ahead!
 
 ## Why .NET?
 
-There are plenty of [Ingress Controllers](https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/) out there but I'm yet to find one that uses .NET. Even the Azure AKS Gateway is written in Go.
+There are plenty of [Ingress Controllers](https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/) out there but this is (we believe) the first one that uses .NET. Even the Azure AKS Gateway is written in Go.
 
-So why did I write this in C#?
+Given the massive improvements to performance in .NET, in particular, the Kestrel web server, it seems like a perfectly valid option in the Ingress Controller space.
+
+So why C# and .NET?
 
 - Why not, .NET?
 - It's super fast!
-- It's extensible using a framework many developers know.
+- It's extensible using a framework many developers know. Have you ever tried to customize Nginx using Perl, Lua or Javascript?
 
 ## Getting Started
 
@@ -28,7 +30,7 @@ Currently, this project is only available in source code form, so you will need 
 
 - .NET Core SDK 5.0
 - An editor (VS Code, or Visual Studio 2019+)
-- Docker Desktop (minikube may work but I haven't tried it)
+- Docker Desktop (minikube may work but this hasn't been tested)
 - Kubernetes (v1.18 or higher due to use of the use of the `ingressClassName` field)
 
 ### Dev Cycle
