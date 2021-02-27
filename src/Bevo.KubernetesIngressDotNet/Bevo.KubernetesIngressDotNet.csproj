@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net5.0</TargetFramework>
+    <UserSecretsId>bbb3d5ac-6bcb-4d52-bb8d-305d4ba4c006</UserSecretsId>
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ReverseProxy" Version="1.0.0-preview.9.21116.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bevo.ReverseProxy.Kubernetes\Bevo.ReverseProxy.Kubernetes.csproj" />
+  </ItemGroup>
+
+</Project>

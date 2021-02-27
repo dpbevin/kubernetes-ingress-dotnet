@@ -1,0 +1,28 @@
+# Default values for the DotNet Ingress.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+environment: Development
+
+nodePort: 30030
+
+image:
+  repository: dpb/ingress-dotnet
+  # Blank tag implies that the Chart.AppVersion will be used ("latest")
+  tag:
+  pullPolicy: IfNotPresent
+
+healthChecks:
+  enabled: false
+  livenessProbe:
+    httpGet: /healthz
+    failureThreshold: 1
+    periodSeconds: 20
+    initialDelaySeconds: 90
+  readinessProbe:
+    httpGet: /healthz
+    failureThreshold: 12
+    periodSeconds: 20
+    initialDelaySeconds: 90

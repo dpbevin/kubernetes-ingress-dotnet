@@ -1,0 +1,28 @@
+apiVersion: skaffold/v2beta6
+kind: Config
+
+build:
+  artifacts:
+    - image: bevo/ingress-dotnet
+      context: ./src/Bevo.KubernetesIngressDotNet/
+      docker:
+        dockerfile: Dockerfile
+
+deploy:
+  kubeContext: docker-desktop
+  helm:
+    releases:
+      - name: ingress-dotnet
+        chartPath: ./chart
+        artifactOverrides:
+          image: bevo/ingress-dotnet
+        setValues:
+          replicaCount: 1
+          healthChecks:
+            enabled: false
+        setValueTemplates:
+          image.pullPolicy: Never
+        skipBuildDependencies: true
+        namespace: dev
+        imageStrategy:
+          helm: {}
