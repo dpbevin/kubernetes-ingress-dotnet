@@ -28,7 +28,8 @@ Currently, this project is only available in source code form, so you will need 
 
 - .NET Core SDK 5.0
 - An editor (VS Code, or Visual Studio 2019+)
-- Docker + Kubernetes
+- Docker Desktop (minikube may work but I haven't tried it)
+- Kubernetes (v1.18 or higher due to use of the use of the `ingressClassName` field)
 
 ### Dev Cycle
 
