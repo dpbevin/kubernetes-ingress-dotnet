@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Primitives;
 using Microsoft.ReverseProxy.Abstractions;
 using Microsoft.ReverseProxy.Service;
@@ -11,15 +12,15 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Bevo.ReverseProxy.Kube.Discovery
+namespace Bevo.ReverseProxy.Kube
 {
     public class KubernetesConfigProvider : IProxyConfigProvider, IAsyncDisposable
     {
         private readonly object _lockObject = new object();
-        private readonly TaskCompletionSource<int> _initalConfigLoadTcs = new TaskCompletionSource<int>();
         private readonly ILogger<KubernetesConfigProvider> _logger;
         private readonly IClock _clock;
         private readonly IKubernetesDiscoverer _discoverer;
+        private readonly IOptionsMonitor<KubernetesDiscoveryOptions> _optionsMonitor;
 
         private volatile ConfigurationSnapshot _snapshot;
         private CancellationTokenSource _changeToken;
@@ -31,11 +32,13 @@ namespace Bevo.ReverseProxy.Kube.Discovery
         public KubernetesConfigProvider(
             ILogger<KubernetesConfigProvider> logger,
             IClock clock,
-            IKubernetesDiscoverer discoverer)
+            IKubernetesDiscoverer discoverer,
+            IOptionsMonitor<KubernetesDiscoveryOptions> optionsMonitor)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _clock = clock ?? throw new ArgumentNullException(nameof(clock));
             _discoverer = discoverer ?? throw new ArgumentNullException(nameof(discoverer));
+            _optionsMonitor = optionsMonitor ?? throw new ArgumentNullException(nameof(optionsMonitor));
 
             _backgroundCts = new CancellationTokenSource();
             _backgroundTask = KubernetesDiscoveryLoop();
@@ -48,32 +51,16 @@ namespace Bevo.ReverseProxy.Kube.Discovery
                 return _snapshot;
             }
 
-            WaitForDiscoveryOrCreateEmptyConfig();
-            Debug.Assert(_snapshot != null);
-            return _snapshot;
-
-            void WaitForDiscoveryOrCreateEmptyConfig()
+            lock (_lockObject)
             {
-                //if (_optionsMonitor.CurrentValue.AllowStartBeforeDiscovery)
-                if (true)
+                if (_snapshot == null)
                 {
-                    lock (_lockObject)
-                    {
-                        if (_snapshot == null)
-                        {
-                            Log.StartWithoutInitialServiceFabricDiscovery(_logger);
-                            UpdateSnapshot(new List<ProxyRoute>(), new List<Cluster>());
-                        }
-                    }
-                }
-                else
-                {
-                    // NOTE: The callstack up to this point is already synchronously blocking.
-                    // There isn't much we can do to avoid this blocking wait on startup.
-                    Log.WaitingForInitialServiceFabricDiscovery(_logger);
-                    _initalConfigLoadTcs.Task.Wait();
+                    UpdateSnapshot(new List<ProxyRoute>(), new List<Cluster>());
                 }
             }
+
+            Debug.Assert(_snapshot != null);
+            return _snapshot;
         }
 
         public async ValueTask DisposeAsync()
@@ -93,35 +80,36 @@ namespace Bevo.ReverseProxy.Kube.Discovery
 
         private async Task KubernetesDiscoveryLoop()
         {
-            Log.StartingServiceFabricDiscoveryLoop(_logger);
-            var first = true;
+            Log.StartingKubernetesDiscoveryLoop(_logger);
+
             var cancellation = _backgroundCts.Token;
+
+            var watchers = _discoverer.BeginWatching(cancellation);
+
             while (true)
             {
                 try
                 {
                     cancellation.ThrowIfCancellationRequested();
-                    if (!first)
-                    {
-                        //await _clock.Delay(_optionsMonitor.CurrentValue.DiscoveryPeriod, cancellation);
-                        await _clock.Delay(10000, cancellation);
-                    }
 
                     var result = await _discoverer.DiscoverAsync(cancellation);
-                    UpdateSnapshot(result.Routes, result.Clusters);
+                    if (result != null)
+                    {
+                        UpdateSnapshot(result.Routes, result.Clusters);
+                    }
+
+                    await _clock.Delay(_optionsMonitor.CurrentValue.DiscoveryPeriod, cancellation);
                 }
                 catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
                 {
                     // Graceful shutdown
-                    Log.ServiceFabricDiscoveryLoopEndedGracefully(_logger);
+                    Log.KubernetesDiscoveryLoopEndedGracefully(_logger);
                     return;
                 }
                 catch (Exception ex)
                 {
-                    Log.ServiceFabricDiscoveryLoopFailed(_logger, ex);
+                    Log.KubernetesDiscoveryLoopFailed(_logger, ex);
                 }
-
-                first = false;
             }
         }
 
@@ -148,8 +136,6 @@ namespace Bevo.ReverseProxy.Kube.Discovery
                     Log.ErrorSignalingChange(_logger, ex);
                 }
             }
-
-            _initalConfigLoadTcs.TrySetResult(0);
         }
 
         // TODO: Perhaps YARP should provide this type?
@@ -170,34 +156,22 @@ namespace Bevo.ReverseProxy.Kube.Discovery
                     EventIds.ErrorSignalingChange,
                     "An exception was thrown from the change notification.");
 
-            private static readonly Action<ILogger, Exception> _startWithoutInitialServiceFabricDiscovery =
-                LoggerMessage.Define(
-                    LogLevel.Information,
-                    EventIds.StartWithoutInitialServiceFabricDiscovery,
-                    $"Proceeding without initial Service Fabric discovery results due to AllowStartBeforeDiscovery = true."); // {nameof(_optionsMonitor.CurrentValue.AllowStartBeforeDiscovery)} = true.");
-
-            private static readonly Action<ILogger, Exception> _waitingForInitialServiceFabricDiscovery =
-                LoggerMessage.Define(
-                    LogLevel.Information,
-                    EventIds.WaitingForInitialServiceFabricDiscovery,
-                    $"Waiting for initial Service Fabric discovery results due to AllowStartBeforeDiscovery = false."); //{nameof(_optionsMonitor.CurrentValue.AllowStartBeforeDiscovery)} = false.");
-
-            private static readonly Action<ILogger, Exception> _startingServiceFabricDiscoveryLoop =
+            private static readonly Action<ILogger, Exception> _startingKubernetesFabricDiscoveryLoop =
                 LoggerMessage.Define(
                     LogLevel.Information,
                     EventIds.StartingServiceFabricDiscoveryLoop,
                     "Service Fabric discovery loop is starting");
 
-            private static readonly Action<ILogger, Exception> _serviceFabricDiscoveryLoopEndedGracefully =
+            private static readonly Action<ILogger, Exception> _kubernetesDiscoveryLoopEndedGracefully =
                 LoggerMessage.Define(
                     LogLevel.Information,
-                    EventIds.ServiceFabricDiscoveryLoopEndedGracefully,
+                    EventIds.DiscoveryLoopEndedGracefully,
                     "Service Fabric discovery loop is ending gracefully");
 
-            private static readonly Action<ILogger, Exception> _serviceFabricDiscoveryLoopFailed =
+            private static readonly Action<ILogger, Exception> _kubernetesDiscoveryLoopFailed =
                 LoggerMessage.Define(
                     LogLevel.Error,
-                    EventIds.ServiceFabricDiscoveryLoopFailed,
+                    EventIds.DiscoveryLoopFailed,
                     "Swallowing unhandled exception from Service Fabric loop...");
 
             public static void ErrorSignalingChange(ILogger logger, Exception exception)
@@ -205,29 +179,19 @@ namespace Bevo.ReverseProxy.Kube.Discovery
                 _errorSignalingChange(logger, exception);
             }
 
-            public static void StartWithoutInitialServiceFabricDiscovery(ILogger<KubernetesConfigProvider> logger)
+            public static void StartingKubernetesDiscoveryLoop(ILogger<KubernetesConfigProvider> logger)
             {
-                _startWithoutInitialServiceFabricDiscovery(logger, null);
+                _startingKubernetesFabricDiscoveryLoop(logger, null);
             }
 
-            public static void WaitingForInitialServiceFabricDiscovery(ILogger<KubernetesConfigProvider> logger)
+            public static void KubernetesDiscoveryLoopEndedGracefully(ILogger<KubernetesConfigProvider> logger)
             {
-                _waitingForInitialServiceFabricDiscovery(logger, null);
+                _kubernetesDiscoveryLoopEndedGracefully(logger, null);
             }
 
-            public static void StartingServiceFabricDiscoveryLoop(ILogger<KubernetesConfigProvider> logger)
+            public static void KubernetesDiscoveryLoopFailed(ILogger<KubernetesConfigProvider> logger, Exception exception)
             {
-                _startingServiceFabricDiscoveryLoop(logger, null);
-            }
-
-            public static void ServiceFabricDiscoveryLoopEndedGracefully(ILogger<KubernetesConfigProvider> logger)
-            {
-                _serviceFabricDiscoveryLoopEndedGracefully(logger, null);
-            }
-
-            public static void ServiceFabricDiscoveryLoopFailed(ILogger<KubernetesConfigProvider> logger, Exception exception)
-            {
-                _serviceFabricDiscoveryLoopFailed(logger, exception);
+                _kubernetesDiscoveryLoopFailed(logger, exception);
             }
         }
     }

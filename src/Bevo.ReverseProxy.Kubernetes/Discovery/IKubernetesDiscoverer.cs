@@ -1,18 +1,18 @@
-﻿using Microsoft.ReverseProxy.Abstractions;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading;
+﻿using System.Threading;
 using System.Threading.Tasks;
 
-namespace Bevo.ReverseProxy.Kube.Discovery
+namespace Bevo.ReverseProxy.Kube
 {
     public interface IKubernetesDiscoverer
     {
         /// <summary>
+        /// Start watching for changes.
+        /// </summary>
+        Task BeginWatching(CancellationToken cancellation);
+
+        /// <summary>
         /// Execute the discovery and update entities.
         /// </summary>
-        Task<(IReadOnlyList<ProxyRoute> Routes, IReadOnlyList<Cluster> Clusters)> DiscoverAsync(CancellationToken cancellation);
+        Task<DiscoveredItems> DiscoverAsync(CancellationToken cancellation);
     }
 }

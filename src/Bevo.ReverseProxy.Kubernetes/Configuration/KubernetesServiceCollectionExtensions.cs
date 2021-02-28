@@ -1,11 +1,7 @@
-﻿using Bevo.ReverseProxy.Kube.Discovery;
+﻿using Bevo.ReverseProxy.Kube;
 using Microsoft.Extensions.Configuration;
 using Microsoft.ReverseProxy.Service;
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Microsoft.Extensions.DependencyInjection
 {
@@ -17,7 +13,7 @@ namespace Microsoft.Extensions.DependencyInjection
 
             AddServices(builder);
 
-            //builder.Services.Configure<ServiceFabricDiscoveryOptions>(configuration);
+            builder.Services.Configure<KubernetesDiscoveryOptions>(configuration);
 
             return builder;
         }

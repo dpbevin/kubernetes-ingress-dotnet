@@ -1,4 +1,5 @@
 ﻿using k8s;
+using k8s.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.ReverseProxy.Abstractions;
 using System;
@@ -8,7 +9,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Bevo.ReverseProxy.Kube.Discovery
+namespace Bevo.ReverseProxy.Kube
 {
     public class KubernetesDiscoverer : IKubernetesDiscoverer
     {
@@ -18,6 +19,8 @@ namespace Bevo.ReverseProxy.Kube.Discovery
 
         private readonly Kubernetes _client;
 
+        private bool _changesOccurred = false;
+
         public KubernetesDiscoverer(ILogger<KubernetesDiscoverer> logger)
         {
             _logger = logger;
@@ -26,8 +29,24 @@ namespace Bevo.ReverseProxy.Kube.Discovery
             _client = new Kubernetes(config);
         }
 
-        public async Task<(IReadOnlyList<ProxyRoute> Routes, IReadOnlyList<Cluster> Clusters)> DiscoverAsync(CancellationToken cancellation)
+        public Task BeginWatching(CancellationToken cancellation)
         {
+            // Force load initially
+            _changesOccurred = true;
+            return Task.WhenAll(
+                RegisterIngressWatcher(cancellation),
+                RegisterEndpointWatcher(cancellation));
+        }
+
+        public async Task<DiscoveredItems> DiscoverAsync(CancellationToken cancellation)
+        {
+            if (!_changesOccurred)
+            {
+                return null;
+            }
+
+            _changesOccurred = false;
+
             var discoveredBackends = new Dictionary<string, Cluster>(StringComparer.Ordinal);
             var discoveredRoutes = new List<ProxyRoute>();
             var matchedServices = new List<MatchedService>();
@@ -77,7 +96,7 @@ namespace Bevo.ReverseProxy.Kube.Discovery
             }
 
             Log.ServiceDiscovered(_logger, discoveredBackends.Count, discoveredRoutes.Count);
-            return (discoveredRoutes, discoveredBackends.Values.ToList());
+            return new DiscoveredItems(discoveredRoutes, discoveredBackends.Values.ToList());
         }
 
         private KubernetesClientConfiguration LocateKubeConfig()
@@ -94,14 +113,43 @@ namespace Bevo.ReverseProxy.Kube.Discovery
             return KubernetesClientConfiguration.BuildConfigFromConfigFile();
         }
 
+
+        private Task RegisterIngressWatcher(CancellationToken cancellation)
+        {
+            // We can probably add a filter to the ListIngress... requests
+            var ingressListResponse = _client.ListIngressForAllNamespacesWithHttpMessagesAsync(watch: true, cancellationToken: cancellation);
+
+            ingressListResponse.Watch<Extensionsv1beta1Ingress, Extensionsv1beta1IngressList>((type, item) =>
+            {
+                if (IngressMatch(item))
+                {
+                    _changesOccurred = true;
+                }
+            });
+
+            return ingressListResponse;
+        }
+
+        private Task RegisterEndpointWatcher(CancellationToken cancellation)
+        {
+            // We can probably add a filter to the ListIngress... requests
+            var endpointListResponse = _client.ListEndpointsForAllNamespacesWithHttpMessagesAsync(watch: true, cancellationToken: cancellation);
+
+            endpointListResponse.Watch<V1Endpoints, V1EndpointsList>((type, item) =>
+            {
+                _changesOccurred = true;
+            });
+
+            return endpointListResponse;
+        }
+
         private async Task<IEnumerable<k8s.Models.Extensionsv1beta1Ingress>> FindMatchingIngressesAsync(CancellationToken cancellation)
         {
             var ingresses = await _client.ListIngressForAllNamespacesAsync(cancellationToken: cancellation);
 
             // Looking for both v1.18 and deprecated mechanisms of identifying ingress class. See https://kubernetes.io/blog/2020/04/02/improvements-to-the-ingress-api-in-kubernetes-1.18/
             var matchedIngresses = ingresses.Items
-                .Where(i => string.Equals(i.Spec.IngressClassName, MatchingIngressClass, StringComparison.OrdinalIgnoreCase) ||
-                            i.Metadata.Annotations.TryGetValue("kubernetes.io/ingress.class", out var ingressClass) && string.Equals(ingressClass, MatchingIngressClass, StringComparison.OrdinalIgnoreCase))
+                .Where(i => IngressMatch(i))
                 .OrderBy(i => i.Metadata.CreationTimestamp)
                 .ToArray();
 
@@ -125,6 +173,13 @@ namespace Bevo.ReverseProxy.Kube.Discovery
             _logger.LogInformation(ingressDump.ToString());
 
             return matchedIngresses;
+        }
+
+
+        private bool IngressMatch(Extensionsv1beta1Ingress ingress)
+        {
+            return string.Equals(ingress.Spec.IngressClassName, MatchingIngressClass, StringComparison.OrdinalIgnoreCase) ||
+                ingress.Metadata.Annotations.TryGetValue("kubernetes.io/ingress.class", out var ingressClass) && string.Equals(ingressClass, MatchingIngressClass, StringComparison.OrdinalIgnoreCase);
         }
 
         private async Task Discover(

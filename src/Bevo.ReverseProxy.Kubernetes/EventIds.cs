@@ -31,8 +31,8 @@ namespace Bevo.ReverseProxy.Kube
         public static readonly EventId StartWithoutInitialServiceFabricDiscovery = new EventId(20, "StartWithoutInitialServiceFabricDiscovery");
         public static readonly EventId WaitingForInitialServiceFabricDiscovery = new EventId(21, "WaitingForInitialServiceFabricDiscovery");
         public static readonly EventId StartingServiceFabricDiscoveryLoop = new EventId(22, "StartingServiceFabricDiscoveryLoop");
-        public static readonly EventId ServiceFabricDiscoveryLoopEndedGracefully = new EventId(23, "ServiceFabricDiscoveryLoopEndedGracefully");
-        public static readonly EventId ServiceFabricDiscoveryLoopFailed = new EventId(24, "ServiceFabricDiscoveryLoopFailed");
+        public static readonly EventId DiscoveryLoopEndedGracefully = new EventId(23, "DiscoveryLoopEndedGracefully");
+        public static readonly EventId DiscoveryLoopFailed = new EventId(24, "DiscoveryLoopFailed");
         public static readonly EventId StartCacheOperation = new EventId(25, "StartCacheOperation");
         public static readonly EventId StartInnerCacheOperation = new EventId(26, "StartInnerCacheOperation");
         public static readonly EventId CacheOperationCompleted = new EventId(27, "CacheOperationCompleted");
