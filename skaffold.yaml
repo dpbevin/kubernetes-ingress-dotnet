@@ -20,6 +20,7 @@ deploy:
           replicaCount: 1
           healthChecks:
             enabled: false
+          environment: Development
         setValueTemplates:
           image.pullPolicy: Never
         skipBuildDependencies: true

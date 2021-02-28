@@ -11,7 +11,7 @@ image:
 replicaCount: 1
 
 ## Name of the ASP.NET Core environment (allows config changes via appsettings.ENVIRONMENT.json)
-environment: Development
+environment: Production
 
 ## Port on which to bind for the ingress controller. NodePort always used.
 nodePort: 30030
