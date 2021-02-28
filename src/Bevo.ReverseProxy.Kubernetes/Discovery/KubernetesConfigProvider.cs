@@ -84,8 +84,6 @@ namespace Bevo.ReverseProxy.Kube
 
             var cancellation = _backgroundCts.Token;
 
-            var watchers = _discoverer.BeginWatching(cancellation);
-
             while (true)
             {
                 try

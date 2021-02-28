@@ -2,6 +2,7 @@
 using k8s.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.ReverseProxy.Abstractions;
+using Microsoft.ReverseProxy.Service;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -19,72 +20,28 @@ namespace Bevo.ReverseProxy.Kube
 
         private readonly Kubernetes _client;
 
-        private bool _changesOccurred = false;
+        private readonly IConfigValidator _configValidator;
 
-        public KubernetesDiscoverer(ILogger<KubernetesDiscoverer> logger)
+        public KubernetesDiscoverer(IConfigValidator configValidator, ILogger<KubernetesDiscoverer> logger)
         {
             _logger = logger;
+            _configValidator = configValidator;
 
             var config = this.LocateKubeConfig();
             _client = new Kubernetes(config);
         }
 
-        public Task BeginWatching(CancellationToken cancellation)
-        {
-            // Force load initially
-            _changesOccurred = true;
-            return Task.WhenAll(
-                RegisterIngressWatcher(cancellation),
-                RegisterEndpointWatcher(cancellation));
-        }
-
         public async Task<DiscoveredItems> DiscoverAsync(CancellationToken cancellation)
         {
-            if (!_changesOccurred)
-            {
-                return null;
-            }
-
-            _changesOccurred = false;
-
-            var discoveredBackends = new Dictionary<string, Cluster>(StringComparer.Ordinal);
+            var discoveredClusters = new Dictionary<string, Cluster>(StringComparer.Ordinal);
             var discoveredRoutes = new List<ProxyRoute>();
-            var matchedServices = new List<MatchedService>();
+            IEnumerable<IngressModel> ingresses;
+            IEnumerable<ServicePortModel> servicePorts;
 
             try
             {
-                var matchingIngresses = await this.FindMatchingIngressesAsync(cancellation);
-
-                await this.Discover(matchingIngresses, matchedServices, discoveredBackends, discoveredRoutes);
-
-                var matchingNamespaces = matchedServices.Select(i => i.Namespace).Distinct();
-
-                foreach (var ns in matchingNamespaces)
-                {
-                    var endponts = await _client.ListNamespacedEndpointsAsync(ns);
-
-                    var pods = await _client.ListNamespacedPodAsync(ns);
-                    var runningPods = pods.Items.Where(p => p.Status.Phase.Equals("Running", StringComparison.OrdinalIgnoreCase)).ToArray();
-
-                    var sb = new StringBuilder();
-                    sb.AppendLine($"Found {endponts.Items.Count} endponts in namespace {ns}");
-                    foreach (var e in endponts.Items)
-                    {
-                        // TODO - Handle multiple ports and match them up with services.
-                        var firstSubset = e.Subsets.First();
-                        string addresses = string.Empty;
-
-                        if (firstSubset.Addresses != null)
-                        {
-                            addresses = string.Join(",", firstSubset.Addresses.Select(a => $"{a.Ip}:{firstSubset.Ports[0].Port}"));
-                        }
-
-                        var msg = firstSubset.NotReadyAddresses != null ? "NOT READY: " + string.Join(",", firstSubset.NotReadyAddresses.Select(a => a.Ip)) : string.Empty;
-                        sb.AppendLine($"\t{e.Metadata.Name} has addresses {addresses} {msg}");
-                    }
-
-                    _logger.LogDebug(sb.ToString());
-                }
+                ingresses = await this.FindMatchingIngressesAsync(cancellation);
+                servicePorts = await this.FindServicesAndPortsAsync(ingresses, cancellation);
             }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
             {
@@ -93,10 +50,175 @@ namespace Bevo.ReverseProxy.Kube
             catch (Exception ex)
             {
                 Log.GettingApplicationFailed(_logger, ex);
+                ingresses = Enumerable.Empty<IngressModel>();
+                servicePorts = Enumerable.Empty<ServicePortModel>();
             }
 
-            Log.ServiceDiscovered(_logger, discoveredBackends.Count, discoveredRoutes.Count);
-            return new DiscoveredItems(discoveredRoutes, discoveredBackends.Values.ToList());
+            foreach (var sp in servicePorts)
+            {
+                try
+                {
+                    var endpoints = await _client.ListNamespacedEndpointsAsync(
+                        namespaceParameter: sp.Namespace,
+                        fieldSelector: $"metadata.name={sp.ServiceName}",
+                        cancellationToken: cancellation);
+
+                    var matchedEndpoint = endpoints.Items.FirstOrDefault();
+                    if (matchedEndpoint == null)
+                    {
+                        _logger.LogWarning($"No endpoint found for service {sp.ServiceName} in namespace {sp.Namespace}");
+                        continue;
+                    }
+
+                    foreach (var subset in matchedEndpoint.Subsets)
+                    {
+                        foreach (var port in subset.Ports)
+                        {
+                            // Do we have a matching ingress for this port?
+                            var matchingIngresses = FindIngressesForService(sp, ingresses);
+
+                            if (matchingIngresses.Any())
+                            {
+                                _logger.LogDebug($"Found matching ingresses for service {sp.ServiceName} in namespace {sp.Namespace}");
+
+                                // Use the endpoint port number as this is guaranteed to be an int (unlike the service).
+                                var clusterId = $"{sp.ServiceName}.{sp.Namespace}:{port.Port}";
+
+                                // Cluster
+                                var cluster = BuildCluster(clusterId, port, subset);
+                                var clusterValidationErrors = await _configValidator.ValidateClusterAsync(cluster);
+                                if (clusterValidationErrors.Count > 0)
+                                {
+                                    throw new ConfigException($"Skipping cluster id '{cluster.Id} due to validation errors.", new AggregateException(clusterValidationErrors));
+                                }
+
+                                if (!discoveredClusters.TryAdd(cluster.Id, cluster))
+                                {
+                                    throw new ConfigException($"Duplicated cluster id '{cluster.Id}'. Skipping repeated definition, service '{sp.ServiceName}' in namespace '{sp.Namespace}'");
+                                }
+
+                                // Routes
+                                var routes = BuildRoutes(clusterId, matchingIngresses);
+                                var routeValidationErrors = new List<Exception>();
+                                foreach (var route in routes)
+                                {
+                                    routeValidationErrors.AddRange(await _configValidator.ValidateRouteAsync(route));
+                                }
+
+                                if (routeValidationErrors.Count > 0)
+                                {
+                                    // Don't add ANY routes if even a single one is bad. Trying to add partial routes
+                                    // could lead to unexpected results (e.g. a typo in the configuration of higher-priority route
+                                    // could lead to a lower-priority route being selected for requests it should not be handling).
+                                    throw new ConfigException($"Skipping ALL routes for cluster id '{cluster.Id} due to validation errors.", new AggregateException(routeValidationErrors));
+                                }
+
+                                discoveredRoutes.AddRange(routes);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Not user's problem
+                    Log.ErrorLoadingEndpoints(_logger, sp.Namespace, sp.ServiceName, ex);
+                }
+            }
+
+            Log.ServiceDiscovered(_logger, discoveredClusters.Count, discoveredRoutes.Count);
+            return new DiscoveredItems(discoveredRoutes, discoveredClusters.Values.ToList());
+        }
+
+        private Cluster BuildCluster(string clusterId, V1EndpointPort port, V1EndpointSubset subset)
+        {
+            var destinations = new Dictionary<string, Destination>();
+
+            // TODO - Check the scheme! Currently assuming http. Also figure out what to do with unavailable addresses
+            var addresses = subset.Addresses.Select(a => $"http://{a.Ip}:{port.Port}").ToArray();
+            for (var i = 0; i < addresses.Length; i++)
+            {
+                var dest = new Destination()
+                {
+                    Address = addresses[i],
+                };
+
+                destinations.Add($"{clusterId}/{i}", dest);
+            }
+
+            return new Cluster
+            {
+                Id = clusterId,
+                Destinations = destinations,
+            };
+        }
+
+        private IEnumerable<ProxyRoute> BuildRoutes(string clusterId, IEnumerable<IngressModel> matchingIngresses)
+        {
+            var routes = new List<ProxyRoute>();
+
+            foreach (var ingress in matchingIngresses)
+            {
+                foreach (var rule in ingress.Rules)
+                {
+                    var paths = rule.Paths.ToArray();
+
+                    for (var i = 0; i < paths.Length; i++)
+                    {
+                        // TODO Only supporting the basics
+                        if (paths[i].Path == "/")
+                        {
+                            var route = new ProxyRoute()
+                            {
+                                ClusterId = clusterId,
+                                //AuthorizationPolicy = "default",
+                                RouteId = $"{clusterId}/{i}",
+                                Match = new ProxyMatch()
+                                {
+                                    Hosts = new[] { rule.Host },
+                                    Path = "{**catch-all}",
+                                }
+                            };
+
+                            routes.Add(route);
+                        }
+                    }
+                }
+            }
+
+            return routes;
+        }
+
+        private IEnumerable<IngressModel> FindIngressesForService(ServicePortModel sp, IEnumerable<IngressModel> ingresses)
+        {
+            var matchingIngresses = new List<IngressModel>();
+
+            // Match ingresses in the right namespace
+            foreach (var ingress in ingresses.Where(i => i.Namespace == sp.Namespace))
+            {
+                foreach (var rule in ingress.Rules)
+                {
+                    // Match paths with the right service name
+                    foreach (var path in rule.Paths.Where(p => p.BackendServiceName == sp.ServiceName))
+                    {
+                        // TODO - Support more than a simple path
+                        if (path.Path == "/")
+                        {
+                            if (int.TryParse(path.BackendServicePort, out var portValue) && portValue == sp.Port)
+                            {
+                                // Port number match
+                                matchingIngresses.Add(ingress);
+                            }
+                            else if (string.Equals(path.BackendServicePort, sp.PortName, StringComparison.OrdinalIgnoreCase))
+                            {
+                                // Matched based on the port name in the service
+                                matchingIngresses.Add(ingress);
+                            }
+                        }
+                    }
+                }
+            }
+
+            return matchingIngresses;
         }
 
         private KubernetesClientConfiguration LocateKubeConfig()
@@ -113,37 +235,7 @@ namespace Bevo.ReverseProxy.Kube
             return KubernetesClientConfiguration.BuildConfigFromConfigFile();
         }
 
-
-        private Task RegisterIngressWatcher(CancellationToken cancellation)
-        {
-            // We can probably add a filter to the ListIngress... requests
-            var ingressListResponse = _client.ListIngressForAllNamespacesWithHttpMessagesAsync(watch: true, cancellationToken: cancellation);
-
-            ingressListResponse.Watch<Extensionsv1beta1Ingress, Extensionsv1beta1IngressList>((type, item) =>
-            {
-                if (IngressMatch(item))
-                {
-                    _changesOccurred = true;
-                }
-            });
-
-            return ingressListResponse;
-        }
-
-        private Task RegisterEndpointWatcher(CancellationToken cancellation)
-        {
-            // We can probably add a filter to the ListIngress... requests
-            var endpointListResponse = _client.ListEndpointsForAllNamespacesWithHttpMessagesAsync(watch: true, cancellationToken: cancellation);
-
-            endpointListResponse.Watch<V1Endpoints, V1EndpointsList>((type, item) =>
-            {
-                _changesOccurred = true;
-            });
-
-            return endpointListResponse;
-        }
-
-        private async Task<IEnumerable<k8s.Models.Extensionsv1beta1Ingress>> FindMatchingIngressesAsync(CancellationToken cancellation)
+        private async Task<IEnumerable<IngressModel>> FindMatchingIngressesAsync(CancellationToken cancellation)
         {
             var ingresses = await _client.ListIngressForAllNamespacesAsync(cancellationToken: cancellation);
 
@@ -151,21 +243,21 @@ namespace Bevo.ReverseProxy.Kube
             var matchedIngresses = ingresses.Items
                 .Where(i => IngressMatch(i))
                 .OrderBy(i => i.Metadata.CreationTimestamp)
-                .ToArray();
+                .Select(i => i.ToModel());
 
             var ingressDump = new StringBuilder();
-            ingressDump.AppendLine($"Located {matchedIngresses.Length} ingresses:");
+            ingressDump.AppendLine($"Located {matchedIngresses.Count()} ingresses:");
 
             foreach (var ingress in matchedIngresses)
             {
-                foreach (var rule in ingress.Spec.Rules)
+                foreach (var rule in ingress.Rules)
                 {
                     ingressDump.AppendLine($"\tRule {rule.Host}");
-                    foreach (var path in rule.Http.Paths)
+                    foreach (var path in rule.Paths)
                     {
                         var supported = path.Path.Equals("/") ? string.Empty : "(NOT SUPPORTED) ";
 
-                        ingressDump.AppendLine($"\t\t{supported}Path '{path.Path}' => {path.Backend.ServiceName}.{ingress.Metadata.NamespaceProperty}:{path.Backend.ServicePort.Value}");
+                        ingressDump.AppendLine($"\t\t{supported}Path '{path.Path}' => {path.BackendServiceName}.{ingress.Namespace}:{path.BackendServicePort}");
                     }
                 }
             }
@@ -175,100 +267,52 @@ namespace Bevo.ReverseProxy.Kube
             return matchedIngresses;
         }
 
+        private async Task<IEnumerable<ServicePortModel>> FindServicesAndPortsAsync(IEnumerable<IngressModel> ingresses, CancellationToken cancellation)
+        {
+            var uniqueServices = new Dictionary<string, V1Service>(StringComparer.InvariantCultureIgnoreCase);
+            var servicePortModels = new List<ServicePortModel>();
+
+            foreach (var ingress in ingresses)
+            {
+                foreach (var rule in ingress.Rules)
+                {
+                    foreach (var path in rule.Paths)
+                    {
+                        var serviceName = $"{ingress.Namespace}.{path.BackendServiceName}";
+
+                        if (!uniqueServices.TryGetValue(path.BackendServiceName, out V1Service locatedService))
+                        {
+                            var k8sService = await _client.ListNamespacedServiceAsync(
+                                namespaceParameter: ingress.Namespace,
+                                fieldSelector: $"metadata.name={path.BackendServiceName}");
+
+                            // We should only get one service given we have a tight fieldSelector 
+                            locatedService = k8sService.Items.FirstOrDefault();
+                            if (locatedService != null)
+                            {
+                                uniqueServices.Add(serviceName, locatedService);
+                            }
+                        }
+
+                        if (locatedService != null)
+                        {
+                            // Only add TCP ports
+                            servicePortModels.AddRange(
+                                locatedService.Spec.Ports
+                                    .Where(p => p.Protocol.ToUpperInvariant() == "TCP")
+                                    .Select(s => s.ToModel(locatedService.Metadata.Name, locatedService.Metadata.NamespaceProperty)));
+                        }
+                    }
+                }
+            }
+
+            return servicePortModels;
+        }
 
         private bool IngressMatch(Extensionsv1beta1Ingress ingress)
         {
             return string.Equals(ingress.Spec.IngressClassName, MatchingIngressClass, StringComparison.OrdinalIgnoreCase) ||
                 ingress.Metadata.Annotations.TryGetValue("kubernetes.io/ingress.class", out var ingressClass) && string.Equals(ingressClass, MatchingIngressClass, StringComparison.OrdinalIgnoreCase);
-        }
-
-        private async Task Discover(
-            IEnumerable<k8s.Models.Extensionsv1beta1Ingress> matchingIngresses,
-            List<MatchedService> matchedServices,
-            IDictionary<string, Cluster> discoveredBackends,
-            IList<ProxyRoute> discoveredRoutes)
-        {
-            foreach (var ingress in matchingIngresses)
-            {
-                foreach (var rule in ingress.Spec.Rules)
-                {
-                    foreach (var path in rule.Http.Paths)
-                    {
-                        // Only supporting the easy stuff now
-                        if (path.Path.Equals("/"))
-                        {
-                            var serviceName = $"{path.Backend.ServiceName}.{ingress.Metadata.NamespaceProperty}/{path.Backend.ServicePort.Value}";
-                            var backendCreated = true;
-
-                            if (!discoveredBackends.TryGetValue(serviceName, out var backend))
-                            {
-                                var destinations = new Dictionary<string, Destination>();
-
-                                string address = null;
-
-                                if (int.TryParse(path.Backend.ServicePort.Value, out var portNumber))
-                                {
-                                    // TODO - Check the scheme! Currently assuming http
-                                    address = $"http://{path.Backend.ServiceName}.{ingress.Metadata.NamespaceProperty}.svc.cluster.local:{portNumber}";
-                                }
-                                else
-                                {
-                                    var k8sService = await _client.ListNamespacedServiceAsync(namespaceParameter: ingress.Metadata.NamespaceProperty, fieldSelector: $"metadata.name={path.Backend.ServiceName}");
-                                    var firstService = k8sService.Items.FirstOrDefault();
-                                    if (firstService != null)
-                                    {
-                                        var matchedPort = firstService.Spec.Ports.FirstOrDefault(p => p.Name.Equals(path.Backend.ServicePort.Value, StringComparison.OrdinalIgnoreCase));
-
-                                        // TODO - Check the scheme!
-                                        address = $"http://{path.Backend.ServiceName}.{ingress.Metadata.NamespaceProperty}.svc.cluster.local:{matchedPort.Port}";
-                                    }
-                                }
-
-                                if (!string.IsNullOrWhiteSpace(address))
-                                {
-                                    var dest = new Destination()
-                                    {
-                                        Address = address,
-                                    };
-
-                                    destinations.Add($"{serviceName}/destination1", dest);
-
-                                    backend = new Cluster
-                                    {
-                                        Id = serviceName,
-                                        Destinations = destinations,
-                                    };
-
-                                    discoveredBackends.Add(serviceName, backend);
-                                    matchedServices.Add(new MatchedService { Namespace = ingress.Metadata.NamespaceProperty, ServiceName = path.Backend.ServiceName });
-                                }
-                                else
-                                {
-                                    backendCreated = false;
-                                }
-                            }
-
-                            if (backendCreated)
-                            {
-                                // Add the route
-                                var route = new ProxyRoute()
-                                {
-                                    ClusterId = serviceName,
-                                    //AuthorizationPolicy = "default",
-                                    RouteId = $"{serviceName}-allroutes",
-                                    Match = new ProxyMatch()
-                                    {
-                                        Hosts = new[] { rule.Host },
-                                        Path = "{**catch-all}",
-                                    }
-                                };
-
-                                discoveredRoutes.Add(route);
-                            }
-                        }
-                    }
-                }
-            }
         }
 
         private static class Log
@@ -291,11 +335,11 @@ namespace Bevo.ReverseProxy.Kube
                     EventIds.InvalidServiceConfig,
                     "Config error found when trying to load service '{serviceName}', skipping.");
 
-            private static readonly Action<ILogger, Uri, Exception> _errorLoadingServiceConfig =
-                LoggerMessage.Define<Uri>(
+            private static readonly Action<ILogger, string, string, Exception> _errorLoadingEndpoints =
+                LoggerMessage.Define<string, string>(
                     LogLevel.Error,
                     EventIds.ErrorLoadingServiceConfig,
-                    "Unexpected error when trying to load service '{serviceName}', skipping.");
+                    "Unexpected error when trying to load endpoints for service '{serviceName}' in namespace '{namespaceName}', skipping.");
 
             private static readonly Action<ILogger, int, int, Exception> _serviceDiscovered =
                 LoggerMessage.Define<int, int>(
@@ -348,9 +392,9 @@ namespace Bevo.ReverseProxy.Kube
                 _invalidServiceConfig(logger, service, exception);
             }
 
-            public static void ErrorLoadingServiceConfig(ILogger logger, Uri service, Exception exception)
+            public static void ErrorLoadingEndpoints(ILogger logger, string namespaceName, string serviceName, Exception exception)
             {
-                _errorLoadingServiceConfig(logger, service, exception);
+                _errorLoadingEndpoints(logger, namespaceName, serviceName, exception);
             }
 
             public static void ServiceDiscovered(ILogger logger, int discoveredBackendsCount, int discoveredRoutesCount)
@@ -382,13 +426,6 @@ namespace Bevo.ReverseProxy.Kube
             {
                 _invalidReplicaSelectionMode(logger, statefulReplicaSelectionMode, serviceName, null);
             }
-        }
-
-        private class MatchedService
-        {
-            public string Namespace { get; set; }
-
-            public string ServiceName { get; set; }
         }
     }
 }
