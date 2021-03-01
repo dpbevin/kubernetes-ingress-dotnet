@@ -4,7 +4,7 @@ kind: Config
 build:
   artifacts:
     - image: bevo/ingress-dotnet
-      context: ./src/Bevo.KubernetesIngressDotNet/
+      context: .
       docker:
         dockerfile: Dockerfile
 
