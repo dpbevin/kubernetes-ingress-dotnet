@@ -4,6 +4,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Configuration;
 
+using Bevo.ReverseProxy.Kube;
+
 namespace KubernetesIngressDotNet
 {
     public class Startup
@@ -29,6 +31,7 @@ namespace KubernetesIngressDotNet
             }
 
             app.UseRouting();
+            app.UseMiddleware<RequestLogMiddleware>();
 
             app.UseEndpoints(endpoints =>
             {
