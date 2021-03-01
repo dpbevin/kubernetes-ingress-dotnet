@@ -1,3 +1,8 @@
+// Copyright (c) 2021 David Bevin
+// 
+// This software is released under the MIT License.
+// https://opensource.org/licenses/MIT
+
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;

@@ -1,0 +1,19 @@
+apiVersion: "networking.k8s.io/v1beta1"
+kind: Ingress
+metadata:
+  name: test-ingress-1
+  namespace: dev
+  labels:
+    app.kubernetes.io/name: test-ingress-1
+    app.kubernetes.io/instance: test-ingress-1
+spec:
+  ingressClassName: "dotnet"
+  rules:
+  - host: foo.127.0.0.1.nip.io
+    http:
+      paths:
+      - path: /
+        pathType: "Prefix"
+        backend:
+          serviceName: echo-echo-server
+          servicePort: http

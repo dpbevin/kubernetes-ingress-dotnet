@@ -1,4 +1,9 @@
-﻿using Microsoft.Extensions.Logging;
+﻿// Copyright (c) 2021 David Bevin
+// 
+// This software is released under the MIT License.
+// https://opensource.org/licenses/MIT
+
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Primitives;
 using Microsoft.ReverseProxy.Abstractions;
@@ -7,8 +12,6 @@ using Microsoft.ReverseProxy.Utilities;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -154,23 +157,23 @@ namespace Bevo.ReverseProxy.Kube
                     EventIds.ErrorSignalingChange,
                     "An exception was thrown from the change notification.");
 
-            private static readonly Action<ILogger, Exception> _startingKubernetesFabricDiscoveryLoop =
+            private static readonly Action<ILogger, Exception> _startingKubernetesDiscoveryLoop =
                 LoggerMessage.Define(
                     LogLevel.Information,
-                    EventIds.StartingServiceFabricDiscoveryLoop,
-                    "Service Fabric discovery loop is starting");
+                    EventIds.StartingKubernetesDiscoveryLoop,
+                    "Kubernetes discovery loop is starting");
 
             private static readonly Action<ILogger, Exception> _kubernetesDiscoveryLoopEndedGracefully =
                 LoggerMessage.Define(
                     LogLevel.Information,
                     EventIds.DiscoveryLoopEndedGracefully,
-                    "Service Fabric discovery loop is ending gracefully");
+                    "Kubernetes discovery loop is ending gracefully");
 
             private static readonly Action<ILogger, Exception> _kubernetesDiscoveryLoopFailed =
                 LoggerMessage.Define(
                     LogLevel.Error,
                     EventIds.DiscoveryLoopFailed,
-                    "Swallowing unhandled exception from Service Fabric loop...");
+                    "Swallowing unhandled exception from Kubernetes loop...");
 
             public static void ErrorSignalingChange(ILogger logger, Exception exception)
             {
@@ -179,7 +182,7 @@ namespace Bevo.ReverseProxy.Kube
 
             public static void StartingKubernetesDiscoveryLoop(ILogger<KubernetesConfigProvider> logger)
             {
-                _startingKubernetesFabricDiscoveryLoop(logger, null);
+                _startingKubernetesDiscoveryLoop(logger, null);
             }
 
             public static void KubernetesDiscoveryLoopEndedGracefully(ILogger<KubernetesConfigProvider> logger)

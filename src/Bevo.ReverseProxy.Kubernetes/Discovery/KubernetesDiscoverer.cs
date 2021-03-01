@@ -1,4 +1,9 @@
-﻿using k8s;
+﻿// Copyright (c) 2021 David Bevin
+// 
+// This software is released under the MIT License.
+// https://opensource.org/licenses/MIT
+
+using k8s;
 using k8s.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.ReverseProxy.Abstractions;
@@ -317,11 +322,11 @@ namespace Bevo.ReverseProxy.Kube
 
         private static class Log
         {
-            private static readonly Action<ILogger, Exception> _gettingServiceFabricApplicationFailed =
+            private static readonly Action<ILogger, Exception> _gettingKubernetesApplicationFailed =
                 LoggerMessage.Define(
                     LogLevel.Error,
                     EventIds.GettingApplicationFailed,
-                    "Could not get applications list from Service Fabric, continuing with zero applications.");
+                    "Could not get applications list from Kubernetes, continuing with zero applications.");
 
             private static readonly Action<ILogger, Uri, Exception> _gettingServiceFailed =
                 LoggerMessage.Define<Uri>(
@@ -379,7 +384,7 @@ namespace Bevo.ReverseProxy.Kube
 
             public static void GettingApplicationFailed(ILogger logger, Exception exception)
             {
-                _gettingServiceFabricApplicationFailed(logger, exception);
+                _gettingKubernetesApplicationFailed(logger, exception);
             }
 
             public static void GettingServiceFailed(ILogger logger, Uri application, Exception exception)

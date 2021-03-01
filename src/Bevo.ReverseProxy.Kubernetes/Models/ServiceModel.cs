@@ -1,8 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿// Copyright (c) 2021 David Bevin
+// 
+// This software is released under the MIT License.
+// https://opensource.org/licenses/MIT
 
 namespace Bevo.ReverseProxy.Kube
 {

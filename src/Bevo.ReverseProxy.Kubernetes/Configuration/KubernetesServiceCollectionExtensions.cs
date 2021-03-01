@@ -1,4 +1,9 @@
-﻿using Bevo.ReverseProxy.Kube;
+﻿// Copyright (c) 2021 David Bevin
+// 
+// This software is released under the MIT License.
+// https://opensource.org/licenses/MIT
+
+using Bevo.ReverseProxy.Kube;
 using Microsoft.Extensions.Configuration;
 using Microsoft.ReverseProxy.Service;
 using System;

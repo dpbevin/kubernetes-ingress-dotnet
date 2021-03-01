@@ -1,9 +1,9 @@
-﻿using Microsoft.Extensions.Logging;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿// Copyright (c) 2021 David Bevin
+// 
+// This software is released under the MIT License.
+// https://opensource.org/licenses/MIT
+
+using Microsoft.Extensions.Logging;
 
 namespace Bevo.ReverseProxy.Kube
 {
@@ -28,9 +28,7 @@ namespace Bevo.ReverseProxy.Kube
         public static readonly EventId ReplicaHealthReportFailedInvalidServiceKind = new EventId(17, "ReplicaHealthReportFailedInvalidServiceKind");
         public static readonly EventId ReplicaHealthReportFailed = new EventId(18, "ReplicaHealthReportFailed");
         public static readonly EventId InvalidApplicationParameter = new EventId(19, "InvalidApplicationParameter");
-        public static readonly EventId StartWithoutInitialServiceFabricDiscovery = new EventId(20, "StartWithoutInitialServiceFabricDiscovery");
-        public static readonly EventId WaitingForInitialServiceFabricDiscovery = new EventId(21, "WaitingForInitialServiceFabricDiscovery");
-        public static readonly EventId StartingServiceFabricDiscoveryLoop = new EventId(22, "StartingServiceFabricDiscoveryLoop");
+        public static readonly EventId StartingKubernetesDiscoveryLoop = new EventId(22, "StartingKubernetesDiscoveryLoop");
         public static readonly EventId DiscoveryLoopEndedGracefully = new EventId(23, "DiscoveryLoopEndedGracefully");
         public static readonly EventId DiscoveryLoopFailed = new EventId(24, "DiscoveryLoopFailed");
         public static readonly EventId StartCacheOperation = new EventId(25, "StartCacheOperation");
