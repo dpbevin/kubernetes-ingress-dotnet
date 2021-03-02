@@ -34,25 +34,28 @@ Currently, this project is only available in source code form, so you will need 
 An ingress resource would be formatted something like this. Note the `ingressClassName` field in the spec.
 
 ```yaml
-apiVersion: "networking.k8s.io/v1beta1"
+---
+apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: test-ingress-1
-  namespace: dev
+  name: test-ingress-new
+  namespace: echoserver
   labels:
-    app.kubernetes.io/name: test-ingress-1
-    app.kubernetes.io/instance: test-ingress-1
+    app.kubernetes.io/name: test-ingress-new
+    app.kubernetes.io/instance: test-ingress-new
 spec:
   ingressClassName: "dotnet"
   rules:
-    - host: foo.127.0.0.1.nip.io
+    - host: foo-new.127.0.0.1.nip.io
       http:
         paths:
           - path: /
-            pathType: "Prefix"
+            pathType: Prefix
             backend:
-              serviceName: some-service
-              servicePort: http
+              service:
+                name: echoserver
+                port:
+                  number: 80
 ```
 
 ## Prerequisties

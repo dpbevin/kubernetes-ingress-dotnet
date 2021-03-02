@@ -197,19 +197,41 @@ namespace Bevo.ReverseProxy.Kube
                 {
                     foreach (var path in rule.Paths)
                     {
-                        // TODO Only supporting the basics
-                        if (path.Path == "/")
+                        ProxyMatch match = null;
+
+                        switch (path.PathType)
+                        {
+                            case IngressPath.IngressPathType.Prefix:
+                                match = new ProxyMatch()
+                                {
+                                    Hosts = new[] { rule.Host },
+                                    Path = path.Path + "{**catch-all}",
+                                };
+                                break;
+
+                            case IngressPath.IngressPathType.Exact:
+                                match = new ProxyMatch()
+                                {
+                                    Hosts = new[] { rule.Host },
+
+                                    // TODO Is this case sensitive? K8S specification says "Exact" should be
+                                    Path = path.Path,
+                                };
+                                break;
+
+                            default:
+                                _logger.LogWarning($"Unexpected Ingress `PathType` value for {ingress.Namespace}/{ingress.Name}");
+                                break;
+                        }
+
+                        if (match != null)
                         {
                             var route = new ProxyRoute()
                             {
                                 ClusterId = clusterId,
                                 //AuthorizationPolicy = "default",
                                 RouteId = $"{clusterId}/{routeIndex}",
-                                Match = new ProxyMatch()
-                                {
-                                    Hosts = new[] { rule.Host },
-                                    Path = "{**catch-all}",
-                                }
+                                Match = match,
                             };
 
                             routes.Add(route);
@@ -289,9 +311,7 @@ namespace Bevo.ReverseProxy.Kube
                     ingressDump.AppendLine($"\tRule {rule.Host}");
                     foreach (var path in rule.Paths)
                     {
-                        var supported = path.Path.Equals("/") ? string.Empty : "(NOT SUPPORTED) ";
-
-                        ingressDump.AppendLine($"\t\t{supported}Path '{path.Path}' => {path.BackendServiceName}.{ingress.Namespace}:{path.BackendServicePort}");
+                        ingressDump.AppendLine($"\t\tPath ({path.PathType}) '{path.Path}' => {path.BackendServiceName}.{ingress.Namespace}:{path.BackendServicePort}");
                     }
                 }
             }
