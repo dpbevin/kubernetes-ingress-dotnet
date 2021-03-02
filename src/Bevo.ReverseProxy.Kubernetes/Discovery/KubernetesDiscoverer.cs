@@ -1,5 +1,5 @@
 ﻿// Copyright (c) 2021 David Bevin
-// 
+//
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
@@ -291,7 +291,7 @@ namespace Bevo.ReverseProxy.Kube
                                 namespaceParameter: ingress.Namespace,
                                 fieldSelector: $"metadata.name={path.BackendServiceName}");
 
-                            // We should only get one service given we have a tight fieldSelector 
+                            // We should only get one service given we have a tight fieldSelector
                             locatedService = k8sService.Items.FirstOrDefault();
                             if (locatedService != null)
                             {

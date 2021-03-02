@@ -7,8 +7,8 @@ This project takes a .NET 5 (formerly .NET Core)-based reverse proxy and combine
 It is based on the following technology:
 
 - ASP.NET 5.0
-- Microsoft's Reverse Proxy - https://microsoft.github.io/reverse-proxy/articles/getting_started.html
-- Kubernetes API Client for .NET - https://github.com/kubernetes-client/csharp
+- [Microsoft's Reverse Proxy](https://microsoft.github.io/reverse-proxy/articles/getting_started.html)
+- [Kubernetes API Client for .NET](https://github.com/kubernetes-client/csharp)
 
 This is still very much a new project... still lots of work ahead!
 
@@ -33,7 +33,7 @@ Currently, this project is only available in source code form, so you will need 
 
 An ingress resource would be formatted something like this. Note the `ingressClassName` field in the spec.
 
-```
+```yaml
 apiVersion: "networking.k8s.io/v1beta1"
 kind: Ingress
 metadata:
@@ -45,14 +45,14 @@ metadata:
 spec:
   ingressClassName: "dotnet"
   rules:
-  - host: foo.127.0.0.1.nip.io
-    http:
-      paths:
-      - path: /
-        pathType: "Prefix"
-        backend:
-          serviceName: some-service
-          servicePort: http
+    - host: foo.127.0.0.1.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: "Prefix"
+            backend:
+              serviceName: some-service
+              servicePort: http
 ```
 
 ## Prerequisties
@@ -76,18 +76,18 @@ This repo uses the [dotnet-format](https://github.com/dotnet/format) linter.
 
 You can install the tool using the following command.
 
-```
+```bash
 dotnet tool install -g dotnet-format
 ```
 
 To check (without modifying) the code, run the following command.
 
-```
+```bash
 dotnet format --check
 ```
 
 To fix any style issues in the code, run the following command.
 
-```
+```bash
 dotnet format
 ```
