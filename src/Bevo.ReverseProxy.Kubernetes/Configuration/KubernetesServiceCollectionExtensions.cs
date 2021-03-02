@@ -3,10 +3,10 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
+using System;
 using Bevo.ReverseProxy.Kube;
 using Microsoft.Extensions.Configuration;
 using Microsoft.ReverseProxy.Service;
-using System;
 
 namespace Microsoft.Extensions.DependencyInjection
 {

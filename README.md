@@ -67,3 +67,25 @@ spec:
 1. Run `skaffold run`
 
 Note that you can simply debug on your host machine, and the Kubernetes client will automatically connect to your local cluster and generate the ingress routes... not that they will work (because the requests will be sent to the cluster addresses).
+
+### Code Linting
+
+This repo uses the [dotnet-format](https://github.com/dotnet/format) linter.
+
+You can install the tool using the following command.
+
+```
+dotnet tool install -g dotnet-format
+```
+
+To check (without modifying) the code, run the following command.
+
+```
+dotnet format --check
+```
+
+To fix any style issues in the code, run the following command.
+
+```
+dotnet format
+```

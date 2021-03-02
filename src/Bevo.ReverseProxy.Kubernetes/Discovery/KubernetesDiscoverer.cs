@@ -3,17 +3,17 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-using k8s;
-using k8s.Models;
-using Microsoft.Extensions.Logging;
-using Microsoft.ReverseProxy.Abstractions;
-using Microsoft.ReverseProxy.Service;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using k8s;
+using k8s.Models;
+using Microsoft.Extensions.Logging;
+using Microsoft.ReverseProxy.Abstractions;
+using Microsoft.ReverseProxy.Service;
 
 namespace Bevo.ReverseProxy.Kube
 {

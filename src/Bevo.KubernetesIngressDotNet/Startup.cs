@@ -1,15 +1,14 @@
-// Copyright (c) 2021 David Bevin
+﻿// Copyright (c) 2021 David Bevin
 // 
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
+using Bevo.ReverseProxy.Kube;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Configuration;
-
-using Bevo.ReverseProxy.Kube;
 
 namespace KubernetesIngressDotNet
 {

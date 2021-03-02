@@ -1,13 +1,13 @@
-// Copyright (c) 2021 David Bevin
+﻿// Copyright (c) 2021 David Bevin
 // 
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
-using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
 using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 
 namespace Bevo.ReverseProxy.Kube
 {
@@ -26,9 +26,9 @@ namespace Bevo.ReverseProxy.Kube
         {
             var requestTime = DateTime.Now;
             var stopwatch = Stopwatch.StartNew();
-            
+
             await _next(context);
-            
+
             stopwatch.Stop();
 
             // 0.0.0.1             - - [01/Mar/2021:20:58:10 +11:00]  "GET /hello HTTP/1.1" 404     0                ""              "PostmanRuntime/7.26.10" ???             0.001
