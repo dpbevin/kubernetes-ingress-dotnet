@@ -14,10 +14,11 @@ using k8s.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.ReverseProxy.Abstractions;
 using Microsoft.ReverseProxy.Service;
+using Newtonsoft.Json;
 
 namespace Bevo.ReverseProxy.Kube
 {
-    public class KubernetesDiscoverer : IKubernetesDiscoverer
+    public class KubernetesDiscoverer : IKubernetesDiscoverer, IDisposable
     {
         private const string MatchingIngressClass = "dotnet";
 
@@ -26,6 +27,12 @@ namespace Bevo.ReverseProxy.Kube
         private readonly Kubernetes _client;
 
         private readonly IConfigValidator _configValidator;
+
+        private string _podName;
+
+        private string _podNamespace;
+
+        private string _publishService;
 
         public KubernetesDiscoverer(IConfigValidator configValidator, ILogger<KubernetesDiscoverer> logger)
         {
@@ -124,8 +131,47 @@ namespace Bevo.ReverseProxy.Kube
                 }
             }
 
+            await ReportStatus(ingresses, cancellation);
+
             Log.ServiceDiscovered(_logger, discoveredClusters.Count, discoveredRoutes.Count);
             return new DiscoveredItems(discoveredRoutes, discoveredClusters.Values.ToList());
+        }
+
+        public void Dispose()
+        {
+            _client?.Dispose();
+        }
+
+        private async Task ReportStatus(IEnumerable<IngressModel> ingresses, CancellationToken cancellation)
+        {
+            var matchedServiceInfo = await _client.ListNamespacedServiceAsync(_podNamespace, fieldSelector: $"metadata.name={_publishService}", cancellationToken: cancellation);
+            var myServiceInfo = matchedServiceInfo?.Items?.FirstOrDefault();
+            if (myServiceInfo == null)
+            {
+                _logger.LogError("Failed to locate my service {service}/{namespace}", _publishService, _podNamespace);
+                return;
+            }
+
+            foreach (var ingress in ingresses)
+            {
+                _logger.LogInformation(
+                    "Updating Ingress status: namespace=\"{namespace}\" ingress=\"{ingress}, currentValue={currentValue}, newValue={newValue}",
+                    ingress.Namespace,
+                    ingress.Name,
+                    JsonConvert.SerializeObject(ingress.Original.Status.LoadBalancer.Ingress),
+                    JsonConvert.SerializeObject(myServiceInfo.Status.LoadBalancer.Ingress));
+
+                try
+                {
+                    ingress.Original.Status.LoadBalancer.Ingress = myServiceInfo.Status.LoadBalancer.Ingress;
+
+                    await _client.ReplaceNamespacedIngressStatusAsync(ingress.Original, name: ingress.Name, namespaceParameter: ingress.Namespace, cancellationToken: cancellation);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "failed to patch ingress status for {ingress}/{namespace}", ingress.Name, ingress.Namespace);
+                }
+            }
         }
 
         private Cluster BuildCluster(string clusterId, ServicePortModel sp, V1Endpoints endpoints) // V1EndpointPort port, V1EndpointSubset subset)
@@ -282,6 +328,14 @@ namespace Bevo.ReverseProxy.Kube
             // Attempt to dynamically determine between in-cluster and host (debug) development...
             var serviceHost = Environment.GetEnvironmentVariable("KUBERNETES_SERVICE_HOST");
             var servicePort = Environment.GetEnvironmentVariable("KUBERNETES_SERVICE_PORT");
+            _podName = Environment.GetEnvironmentVariable("POD_NAME");
+            _podNamespace = Environment.GetEnvironmentVariable("POD_NAMESPACE");
+            _publishService = Environment.GetEnvironmentVariable("PUBLISH_SERVICE");
+
+            if (string.IsNullOrWhiteSpace(_podName) || string.IsNullOrWhiteSpace(_podNamespace))
+            {
+                throw new InvalidOperationException("Failed to detect current pod information. Check POD_NAME and POD_NAMESPACE environment variables.");
+            }
 
             if (!string.IsNullOrWhiteSpace(serviceHost) && !string.IsNullOrWhiteSpace(servicePort))
             {
@@ -293,6 +347,7 @@ namespace Bevo.ReverseProxy.Kube
 
         private async Task<IEnumerable<IngressModel>> FindMatchingIngressesAsync(CancellationToken cancellation)
         {
+            // TODO - filter based on the ingressClassName (and remove the post-filter)
             var ingresses = await _client.ListIngressForAllNamespacesAsync(cancellationToken: cancellation);
 
             // Looking for both v1.18 and deprecated mechanisms of identifying ingress class. See https://kubernetes.io/blog/2020/04/02/improvements-to-the-ingress-api-in-kubernetes-1.18/
@@ -339,7 +394,8 @@ namespace Bevo.ReverseProxy.Kube
                         {
                             var k8sService = await _client.ListNamespacedServiceAsync(
                                 namespaceParameter: ingress.Namespace,
-                                fieldSelector: $"metadata.name={path.BackendServiceName}");
+                                fieldSelector: $"metadata.name={path.BackendServiceName}",
+                                cancellationToken: cancellation);
 
                             // We should only get one service given we have a tight fieldSelector
                             locatedService = k8sService.Items.FirstOrDefault();

@@ -17,6 +17,7 @@ namespace Bevo.ReverseProxy.Kube
                 Name = ingress.Metadata.Name,
                 Namespace = ingress.Metadata.NamespaceProperty,
                 Rules = ingress.Spec.Rules.Select(r => r.ToModel()),
+                Original = ingress,
             };
         }
 

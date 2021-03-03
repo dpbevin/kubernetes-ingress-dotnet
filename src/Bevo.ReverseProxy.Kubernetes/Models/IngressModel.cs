@@ -4,6 +4,7 @@
 // https://opensource.org/licenses/MIT
 
 using System.Collections.Generic;
+using k8s.Models;
 
 namespace Bevo.ReverseProxy.Kube
 {
@@ -15,5 +16,7 @@ namespace Bevo.ReverseProxy.Kube
         public string Name { get; set; }
 
         public IEnumerable<IngressRule> Rules { get; set; }
+
+        internal Extensionsv1beta1Ingress Original { get; set; }
     }
 }

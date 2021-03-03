@@ -15,7 +15,10 @@
                 "pattern": "\\\\bNow listening on:\\\\s+(https?://\\\\S+)"
             },
             "env": {
-                "ASPNETCORE_ENVIRONMENT": "Development"
+                "ASPNETCORE_ENVIRONMENT": "Development",
+                "POD_NAME": "ingress-dotnet-547bd5697f-kx4hl",
+                "POD_NAMESPACE": "dev",
+                "PUBLISH_SERVICE": "ingress-dotnet"
             },
             "sourceFileMap": {
                 "/Views": "${workspaceFolder}/Views"

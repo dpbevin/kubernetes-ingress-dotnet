@@ -36,7 +36,7 @@ namespace Bevo.ReverseProxy.Kube
             // '$remote_addr - $remote_user [$time_local]             "$request"            $status $body_bytes_sent "$http_referer" "$http_user_agent"       $request_length $request_time $proxy_upstream_name        $proxy_alternative_upstream_name $upstream_addr $upstream_response_length $upstream_response_time $upstream_status $req_id'
             // See https://github.com/kubernetes/ingress-nginx/blob/master/docs/user-guide/nginx-configuration/log-format.md
             var remoteAddress = context.Request.HttpContext.Connection.RemoteIpAddress;
-            var request = $"{context.Request.Method.ToUpper()} {context.Request.Path} {context.Request.Protocol}";
+            var request = $"{context.Request.Method.ToUpperInvariant()} {context.Request.Path} {context.Request.Protocol}";
             var status = context.Response.StatusCode;
             var bodyBytesSent = 0;  // We can't get this because we're streaming
             var httpReferer = context.Request.Headers["Referer"];
