@@ -300,21 +300,17 @@ namespace Bevo.ReverseProxy.Kube
                 foreach (var rule in ingress.Rules)
                 {
                     // Match paths with the right service name
-                    foreach (var path in rule.Paths.Where(p => p.BackendServiceName == sp.ServiceName))
+                    foreach (var path in rule.Paths.Where(p => p.BackendServiceName == sp.ServiceName && p.PathType != IngressPath.IngressPathType.ImplementationSpecific))
                     {
-                        // TODO - Support more than a simple path
-                        if (path.Path == "/")
+                        if (int.TryParse(path.BackendServicePort, out var portValue) && portValue == sp.Port)
                         {
-                            if (int.TryParse(path.BackendServicePort, out var portValue) && portValue == sp.Port)
-                            {
-                                // Port number match
-                                matchingIngresses.Add(ingress);
-                            }
-                            else if (string.Equals(path.BackendServicePort, sp.PortName, StringComparison.OrdinalIgnoreCase))
-                            {
-                                // Matched based on the port name in the service
-                                matchingIngresses.Add(ingress);
-                            }
+                            // Port number match
+                            matchingIngresses.Add(ingress);
+                        }
+                        else if (string.Equals(path.BackendServicePort, sp.PortName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            // Matched based on the port name in the service
+                            matchingIngresses.Add(ingress);
                         }
                     }
                 }
@@ -328,6 +324,8 @@ namespace Bevo.ReverseProxy.Kube
             // Attempt to dynamically determine between in-cluster and host (debug) development...
             var serviceHost = Environment.GetEnvironmentVariable("KUBERNETES_SERVICE_HOST");
             var servicePort = Environment.GetEnvironmentVariable("KUBERNETES_SERVICE_PORT");
+
+            // Locate from environment variables directly. Unlike IConfiguration, which could be overridden.
             _podName = Environment.GetEnvironmentVariable("POD_NAME");
             _podNamespace = Environment.GetEnvironmentVariable("POD_NAMESPACE");
             _publishService = Environment.GetEnvironmentVariable("PUBLISH_SERVICE");
@@ -347,7 +345,6 @@ namespace Bevo.ReverseProxy.Kube
 
         private async Task<IEnumerable<IngressModel>> FindMatchingIngressesAsync(CancellationToken cancellation)
         {
-            // TODO - filter based on the ingressClassName (and remove the post-filter)
             var ingresses = await _client.ListIngressForAllNamespacesAsync(cancellationToken: cancellation);
 
             // Looking for both v1.18 and deprecated mechanisms of identifying ingress class. See https://kubernetes.io/blog/2020/04/02/improvements-to-the-ingress-api-in-kubernetes-1.18/
