@@ -41,6 +41,7 @@ namespace Bevo.ReverseProxy.Kube
 
             var config = this.LocateKubeConfig();
             _client = new Kubernetes(config);
+            _client.SerializationSettings.Converters.Add(new JsonDateTimeConverter());
         }
 
         public async Task<DiscoveredItems> DiscoverAsync(CancellationToken cancellation)
@@ -165,7 +166,7 @@ namespace Bevo.ReverseProxy.Kube
                 {
                     ingress.Original.Status.LoadBalancer.Ingress = myServiceInfo.Status.LoadBalancer.Ingress;
 
-                    await _client.ReplaceNamespacedIngressStatusAsync(ingress.Original, name: ingress.Name, namespaceParameter: ingress.Namespace, cancellationToken: cancellation);
+                    await _client.ReplaceNamespacedIngressStatus1Async(ingress.Original, name: ingress.Name, namespaceParameter: ingress.Namespace, cancellationToken: cancellation);
                 }
                 catch (Exception ex)
                 {
@@ -321,10 +322,6 @@ namespace Bevo.ReverseProxy.Kube
 
         private KubernetesClientConfiguration LocateKubeConfig()
         {
-            // Attempt to dynamically determine between in-cluster and host (debug) development...
-            var serviceHost = Environment.GetEnvironmentVariable("KUBERNETES_SERVICE_HOST");
-            var servicePort = Environment.GetEnvironmentVariable("KUBERNETES_SERVICE_PORT");
-
             // Locate from environment variables directly. Unlike IConfiguration, which could be overridden.
             _podName = Environment.GetEnvironmentVariable("POD_NAME");
             _podNamespace = Environment.GetEnvironmentVariable("POD_NAMESPACE");
@@ -335,7 +332,7 @@ namespace Bevo.ReverseProxy.Kube
                 throw new InvalidOperationException("Failed to detect current pod information. Check POD_NAME and POD_NAMESPACE environment variables.");
             }
 
-            if (!string.IsNullOrWhiteSpace(serviceHost) && !string.IsNullOrWhiteSpace(servicePort))
+            if (KubernetesClientConfiguration.IsInCluster())
             {
                 return KubernetesClientConfiguration.InClusterConfig();
             }
@@ -345,7 +342,7 @@ namespace Bevo.ReverseProxy.Kube
 
         private async Task<IEnumerable<IngressModel>> FindMatchingIngressesAsync(CancellationToken cancellation)
         {
-            var ingresses = await _client.ListIngressForAllNamespacesAsync(cancellationToken: cancellation);
+            var ingresses = await _client.ListIngressForAllNamespaces1Async(cancellationToken: cancellation);
 
             // Looking for both v1.18 and deprecated mechanisms of identifying ingress class. See https://kubernetes.io/blog/2020/04/02/improvements-to-the-ingress-api-in-kubernetes-1.18/
             var matchedIngresses = ingresses.Items
@@ -366,11 +363,87 @@ namespace Bevo.ReverseProxy.Kube
                         ingressDump.AppendLine($"\t\tPath ({path.PathType}) '{path.Path}' => {path.BackendServiceName}.{ingress.Namespace}:{path.BackendServicePort}");
                     }
                 }
+
+                await ReportIngressEvent(ingress, cancellation);
             }
 
             _logger.LogInformation(ingressDump.ToString());
 
             return matchedIngresses;
+        }
+
+        private async Task ReportIngressEvent(IngressModel ingress, CancellationToken cancellation)
+        {
+            var eventTime = DateTime.Now;
+
+            // https://github.com/kubernetes/client-go/blob/758467711e075d6fd3d31abcaf6e2e1eb51ef3d4/tools/events/event_recorder.go#L43
+
+            // GetReference() https://github.com/kubernetes/client-go/blob/758467711e075d6fd3d31abcaf6e2e1eb51ef3d4/tools/reference/ref.go#L91
+            var objRef = new V1ObjectReference
+            {
+                Kind = V1Ingress.KubeKind,
+                ApiVersion = V1Ingress.KubeGroup + "/" + V1Ingress.KubeApiVersion,
+                Name = ingress.Name,
+                NamespaceProperty = ingress.Namespace,
+                Uid = ingress.Original.Metadata.Uid,
+                ResourceVersion = ingress.Original.Metadata.ResourceVersion,
+            };
+            //resourceVersion: ingress.Original.ResourceVersion(),
+            //uid: ingress.Original.Uid());
+
+            // recorder.makeEvent(refRegarding, refRelated, timestamp, eventtype, reason, message, recorder.reportingController, recorder.reportingInstance, action)
+            // var evt = new Corev1Event //objRef, ingress.Original.Metadata, action: "Status", reason: "Sync", message: "Scheduled for sync", type: "Normal", reportingComponent: "dotnet-ingress-controller");
+            // {
+            //     ApiVersion = Corev1Event.KubeApiVersion,
+            //     Kind = Corev1Event.KubeKind,
+            //     InvolvedObject = objRef,
+            //     Metadata = ingress.Original.Metadata,
+            //     // Related = ??
+            //     //EventTime = DateTime.UtcNow,
+            //     Type = "Normal",
+            //     Reason = "Sync",
+            //     Message = "Scheduled for sync",
+            //     ReportingComponent = "dotnet-ingress-controller",
+            //     ReportingInstance = _podName,
+            //     Action = null,
+            // };
+
+            // recorder.makeEvent(refRegarding, refRelated, timestamp, eventtype, reason, message, recorder.reportingController, recorder.reportingInstance, action)
+            // See https://github.com/kubernetes/client-go/blob/758467711e075d6fd3d31abcaf6e2e1eb51ef3d4/tools/events/event_recorder.go#L66
+            var evt = new Eventsv1Event
+            {
+                ApiVersion = Eventsv1Event.KubeGroup + "/" + Eventsv1Event.KubeApiVersion,
+                Kind = Eventsv1Event.KubeKind,
+                Regarding = objRef,
+                Reason = "Sync",
+                Type = "Normal",
+                Metadata = new V1ObjectMeta
+                {
+                    Name = $"{ingress.Name}.{eventTime.Ticks:D}",
+                    NamespaceProperty = ingress.Namespace,
+                },
+                //Action = "Added",
+                Note = "Scheduled for sync",
+                //ReportingController = "dotnet-ingress-controller",
+                //ReportingInstance = _podName,
+                //DeprecatedSource = recorder.source,
+                EventTime = eventTime,
+                DeprecatedCount = 1,
+                DeprecatedFirstTimestamp = eventTime,
+                DeprecatedLastTimestamp = eventTime,
+            };
+
+            try
+            {
+                //evt.Validate();
+                var createdEvent = await _client.CreateNamespacedEvent1Async(evt, namespaceParameter: ingress.Namespace, cancellationToken: cancellation);
+                _logger.LogInformation($"EventRecorder created for {ingress.Name}.{ingress.Namespace} with UID {createdEvent.Metadata.SelfLink}");
+                //await _client.CreateNamespacedEventAsync(evt, namespaceParameter: ingress.Namespace, cancellationToken: cancellation);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to report event for ingress {name}.{namespace}", ingress.Name, ingress.Namespace);
+            }
         }
 
         private async Task<IEnumerable<ServicePortModel>> FindServicesAndPortsAsync(IEnumerable<IngressModel> ingresses, CancellationToken cancellation)
@@ -423,10 +496,10 @@ namespace Bevo.ReverseProxy.Kube
             return servicePortModels.Values;
         }
 
-        private bool IngressMatch(Extensionsv1beta1Ingress ingress)
+        private bool IngressMatch(V1Ingress ingress)
         {
             return string.Equals(ingress.Spec.IngressClassName, MatchingIngressClass, StringComparison.OrdinalIgnoreCase) ||
-                ingress.Metadata.Annotations.TryGetValue("kubernetes.io/ingress.class", out var ingressClass) && string.Equals(ingressClass, MatchingIngressClass, StringComparison.OrdinalIgnoreCase);
+                (ingress.Metadata.Annotations.TryGetValue("kubernetes.io/ingress.class", out var ingressClass) && string.Equals(ingressClass, MatchingIngressClass, StringComparison.OrdinalIgnoreCase));
         }
 
         private static class Log
