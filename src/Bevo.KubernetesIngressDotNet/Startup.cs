@@ -4,6 +4,7 @@
 // https://opensource.org/licenses/MIT
 
 using Bevo.ReverseProxy.Kube;
+
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
@@ -24,7 +25,7 @@ namespace KubernetesIngressDotNet
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddReverseProxy()
-                .LoadFromKubernetes(this.Configuration.GetSection("KubeRP"));
+                .LoadFromKubernetes(Configuration.GetSection("KubeRP"));
         }
 
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)

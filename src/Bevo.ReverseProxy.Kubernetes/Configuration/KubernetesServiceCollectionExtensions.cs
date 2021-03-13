@@ -4,7 +4,11 @@
 // https://opensource.org/licenses/MIT
 
 using System;
+
 using Bevo.ReverseProxy.Kube;
+
+using k8s;
+
 using Microsoft.Extensions.Configuration;
 using Microsoft.ReverseProxy.Service;
 
@@ -27,6 +31,29 @@ namespace Microsoft.Extensions.DependencyInjection
         {
             builder.Services.AddSingleton<IKubernetesDiscoverer, KubernetesDiscoverer>();
             builder.Services.AddSingleton<IProxyConfigProvider, KubernetesConfigProvider>();
+            builder.Services.AddSingleton<IControllerConfiguration, ControllerConfiguration>();
+            builder.Services.AddSingleton<IBindingPortManagement, KubernetesBindingPortManagement>();
+            builder.Services.AddSingleton<IKubernetes>(new Kubernetes(LocateKubeConfig()));
+        }
+
+        private static KubernetesClientConfiguration LocateKubeConfig()
+        {
+            // Attempt to dynamically determine between in-cluster and host (debug) development...
+            var serviceHost = Environment.GetEnvironmentVariable("KUBERNETES_SERVICE_HOST");
+            var servicePort = Environment.GetEnvironmentVariable("KUBERNETES_SERVICE_PORT");
+
+            // Locate from environment variables directly. Unlike IConfiguration, which could be overridden.
+            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("POD_NAME")) || string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("POD_NAMESPACE")))
+            {
+                throw new InvalidOperationException("Failed to detect current pod information. Check POD_NAME and POD_NAMESPACE environment variables.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(serviceHost) && !string.IsNullOrWhiteSpace(servicePort))
+            {
+                return KubernetesClientConfiguration.InClusterConfig();
+            }
+
+            return KubernetesClientConfiguration.BuildConfigFromConfigFile();
         }
     }
 }

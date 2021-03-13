@@ -24,23 +24,18 @@ namespace Bevo.ReverseProxy.Kube
 
         private readonly ILogger<KubernetesDiscoverer> _logger;
 
-        private readonly Kubernetes _client;
+        private readonly IKubernetes _client;
 
         private readonly IConfigValidator _configValidator;
 
-        private string _podName;
+        private readonly IControllerConfiguration _configuration;
 
-        private string _podNamespace;
-
-        private string _publishService;
-
-        public KubernetesDiscoverer(IConfigValidator configValidator, ILogger<KubernetesDiscoverer> logger)
+        public KubernetesDiscoverer(IConfigValidator configValidator, IKubernetes kubernetesClient, IControllerConfiguration configuration, ILogger<KubernetesDiscoverer> logger)
         {
             _logger = logger;
             _configValidator = configValidator;
-
-            var config = this.LocateKubeConfig();
-            _client = new Kubernetes(config);
+            _client = kubernetesClient;
+            _configuration = configuration;
         }
 
         public async Task<DiscoveredItems> DiscoverAsync(CancellationToken cancellation)
@@ -52,8 +47,8 @@ namespace Bevo.ReverseProxy.Kube
 
             try
             {
-                ingresses = await this.FindMatchingIngressesAsync(cancellation);
-                servicePorts = await this.FindServicesAndPortsAsync(ingresses, cancellation);
+                ingresses = await FindMatchingIngressesAsync(cancellation);
+                servicePorts = await FindServicesAndPortsAsync(ingresses, cancellation);
             }
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
             {
@@ -144,11 +139,11 @@ namespace Bevo.ReverseProxy.Kube
 
         private async Task ReportStatus(IEnumerable<IngressModel> ingresses, CancellationToken cancellation)
         {
-            var matchedServiceInfo = await _client.ListNamespacedServiceAsync(_podNamespace, fieldSelector: $"metadata.name={_publishService}", cancellationToken: cancellation);
+            var matchedServiceInfo = await _client.ListNamespacedServiceAsync(_configuration.PodNamespace, fieldSelector: $"metadata.name={_configuration.PublishService}", cancellationToken: cancellation);
             var myServiceInfo = matchedServiceInfo?.Items?.FirstOrDefault();
             if (myServiceInfo == null)
             {
-                _logger.LogError("Failed to locate my service {service}/{namespace}", _publishService, _podNamespace);
+                _logger.LogError("Failed to locate my service {service}/{namespace}", _configuration.PublishService, _configuration.PodNamespace);
                 return;
             }
 
@@ -317,30 +312,6 @@ namespace Bevo.ReverseProxy.Kube
             }
 
             return matchingIngresses;
-        }
-
-        private KubernetesClientConfiguration LocateKubeConfig()
-        {
-            // Attempt to dynamically determine between in-cluster and host (debug) development...
-            var serviceHost = Environment.GetEnvironmentVariable("KUBERNETES_SERVICE_HOST");
-            var servicePort = Environment.GetEnvironmentVariable("KUBERNETES_SERVICE_PORT");
-
-            // Locate from environment variables directly. Unlike IConfiguration, which could be overridden.
-            _podName = Environment.GetEnvironmentVariable("POD_NAME");
-            _podNamespace = Environment.GetEnvironmentVariable("POD_NAMESPACE");
-            _publishService = Environment.GetEnvironmentVariable("PUBLISH_SERVICE");
-
-            if (string.IsNullOrWhiteSpace(_podName) || string.IsNullOrWhiteSpace(_podNamespace))
-            {
-                throw new InvalidOperationException("Failed to detect current pod information. Check POD_NAME and POD_NAMESPACE environment variables.");
-            }
-
-            if (!string.IsNullOrWhiteSpace(serviceHost) && !string.IsNullOrWhiteSpace(servicePort))
-            {
-                return KubernetesClientConfiguration.InClusterConfig();
-            }
-
-            return KubernetesClientConfiguration.BuildConfigFromConfigFile();
         }
 
         private async Task<IEnumerable<IngressModel>> FindMatchingIngressesAsync(CancellationToken cancellation)
