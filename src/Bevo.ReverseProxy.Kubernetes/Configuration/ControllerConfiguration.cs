@@ -11,6 +11,8 @@ namespace Bevo.ReverseProxy.Kube
     {
         public string PodNamespace => Environment.GetEnvironmentVariable("POD_NAMESPACE");
 
+        public string PodName => Environment.GetEnvironmentVariable("POD_NAME");
+
         public string PublishService => Environment.GetEnvironmentVariable("PUBLISH_SERVICE");
     }
 }

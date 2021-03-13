@@ -4,6 +4,7 @@
 // https://opensource.org/licenses/MIT
 
 using System;
+using System.Threading.Channels;
 
 using Bevo.ReverseProxy.Kube;
 
@@ -33,7 +34,17 @@ namespace Microsoft.Extensions.DependencyInjection
             builder.Services.AddSingleton<IProxyConfigProvider, KubernetesConfigProvider>();
             builder.Services.AddSingleton<IControllerConfiguration, ControllerConfiguration>();
             builder.Services.AddSingleton<IBindingPortManagement, KubernetesBindingPortManagement>();
-            builder.Services.AddSingleton<IKubernetes>(new Kubernetes(LocateKubeConfig()));
+
+            builder.Services.AddSingleton<IKubernetes>(sp =>
+            {
+                var client = new Kubernetes(LocateKubeConfig());
+                client.SerializationSettings.Converters.Add(new JsonDateTimeConverter());
+                return client;
+            });
+
+            builder.Services.AddSingleton<IEventRecorder, EventRecorder>();
+            builder.Services.AddSingleton<Channel<KubeEvent>>(Channel.CreateBounded<KubeEvent>(500));
+            builder.Services.AddHostedService<EventBroadcaster>();
         }
 
         private static KubernetesClientConfiguration LocateKubeConfig()

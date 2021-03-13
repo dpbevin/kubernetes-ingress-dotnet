@@ -24,18 +24,21 @@ namespace Bevo.ReverseProxy.Kube
 
         private readonly ILogger<KubernetesDiscoverer> _logger;
 
+        private readonly IEventRecorder _eventRecorder;
+
         private readonly IKubernetes _client;
 
         private readonly IConfigValidator _configValidator;
 
         private readonly IControllerConfiguration _configuration;
 
-        public KubernetesDiscoverer(IConfigValidator configValidator, IKubernetes kubernetesClient, IControllerConfiguration configuration, ILogger<KubernetesDiscoverer> logger)
+        public KubernetesDiscoverer(IConfigValidator configValidator, IKubernetes kubernetesClient, IEventRecorder eventRecorder, IControllerConfiguration configuration, ILogger<KubernetesDiscoverer> logger)
         {
-            _logger = logger;
-            _configValidator = configValidator;
-            _client = kubernetesClient;
-            _configuration = configuration;
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _configValidator = configValidator ?? throw new ArgumentNullException(nameof(configValidator));
+            _eventRecorder = eventRecorder ?? throw new ArgumentNullException(nameof(eventRecorder));
+            _client = kubernetesClient ?? throw new ArgumentNullException(nameof(kubernetesClient));
+            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
         }
 
         public async Task<DiscoveredItems> DiscoverAsync(CancellationToken cancellation)
@@ -160,7 +163,7 @@ namespace Bevo.ReverseProxy.Kube
                 {
                     ingress.Original.Status.LoadBalancer.Ingress = myServiceInfo.Status.LoadBalancer.Ingress;
 
-                    await _client.ReplaceNamespacedIngressStatusAsync(ingress.Original, name: ingress.Name, namespaceParameter: ingress.Namespace, cancellationToken: cancellation);
+                    await _client.ReplaceNamespacedIngressStatus1Async(ingress.Original, name: ingress.Name, namespaceParameter: ingress.Namespace, cancellationToken: cancellation);
                 }
                 catch (Exception ex)
                 {
@@ -316,7 +319,7 @@ namespace Bevo.ReverseProxy.Kube
 
         private async Task<IEnumerable<IngressModel>> FindMatchingIngressesAsync(CancellationToken cancellation)
         {
-            var ingresses = await _client.ListIngressForAllNamespacesAsync(cancellationToken: cancellation);
+            var ingresses = await _client.ListIngressForAllNamespaces1Async(cancellationToken: cancellation);
 
             // Looking for both v1.18 and deprecated mechanisms of identifying ingress class. See https://kubernetes.io/blog/2020/04/02/improvements-to-the-ingress-api-in-kubernetes-1.18/
             var matchedIngresses = ingresses.Items
@@ -337,6 +340,18 @@ namespace Bevo.ReverseProxy.Kube
                         ingressDump.AppendLine($"\t\tPath ({path.PathType}) '{path.Path}' => {path.BackendServiceName}.{ingress.Namespace}:{path.BackendServicePort}");
                     }
                 }
+
+                var objRef = new V1ObjectReference
+                {
+                    Kind = V1Ingress.KubeKind,
+                    ApiVersion = V1Ingress.KubeGroup + "/" + V1Ingress.KubeApiVersion,
+                    Name = ingress.Name,
+                    NamespaceProperty = ingress.Namespace,
+                    Uid = ingress.Original.Metadata.Uid,
+                    ResourceVersion = ingress.Original.Metadata.ResourceVersion,
+                };
+
+                await _eventRecorder.CreateEvent(objRef, KubeEvent.EventType.Normal, "Sync", "Scheduled for sync", cancellation);
             }
 
             _logger.LogInformation(ingressDump.ToString());
@@ -394,7 +409,7 @@ namespace Bevo.ReverseProxy.Kube
             return servicePortModels.Values;
         }
 
-        private bool IngressMatch(Extensionsv1beta1Ingress ingress)
+        private bool IngressMatch(V1Ingress ingress)
         {
             return string.Equals(ingress.Spec.IngressClassName, MatchingIngressClass, StringComparison.OrdinalIgnoreCase) ||
                 ingress.Metadata.Annotations.TryGetValue("kubernetes.io/ingress.class", out var ingressClass) && string.Equals(ingressClass, MatchingIngressClass, StringComparison.OrdinalIgnoreCase);

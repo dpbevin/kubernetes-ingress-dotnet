@@ -17,6 +17,6 @@ namespace Bevo.ReverseProxy.Kube
 
         public IEnumerable<IngressRule> Rules { get; set; }
 
-        internal Extensionsv1beta1Ingress Original { get; set; }
+        internal V1Ingress Original { get; set; }
     }
 }

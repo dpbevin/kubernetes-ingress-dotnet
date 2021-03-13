@@ -3,6 +3,7 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
+using System.Globalization;
 using System.Linq;
 using k8s.Models;
 
@@ -10,7 +11,7 @@ namespace Bevo.ReverseProxy.Kube
 {
     public static class ModelExtensions
     {
-        public static IngressModel ToModel(this Extensionsv1beta1Ingress ingress)
+        public static IngressModel ToModel(this V1Ingress ingress)
         {
             return new IngressModel
             {
@@ -21,7 +22,7 @@ namespace Bevo.ReverseProxy.Kube
             };
         }
 
-        public static IngressRule ToModel(this Extensionsv1beta1IngressRule rule)
+        public static IngressRule ToModel(this V1IngressRule rule)
         {
             return new IngressRule
             {
@@ -30,14 +31,14 @@ namespace Bevo.ReverseProxy.Kube
             };
         }
 
-        public static IngressPath ToModel(this Extensionsv1beta1HTTPIngressPath path)
+        public static IngressPath ToModel(this V1HTTPIngressPath path)
         {
             return new IngressPath
             {
                 Path = path.Path,
                 PathType = ParsePathType(path.PathType),
-                BackendServiceName = path.Backend?.ServiceName,
-                BackendServicePort = path.Backend?.ServicePort,
+                BackendServiceName = path.Backend?.Service.Name,
+                BackendServicePort = path.Backend?.Service.Port.Number?.ToString("F", CultureInfo.InvariantCulture),
             };
         }
 

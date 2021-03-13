@@ -9,6 +9,8 @@ namespace Bevo.ReverseProxy.Kube
     {
         string PodNamespace { get; }
 
+        string PodName { get; }
+
         string PublishService { get; }
     }
 }
