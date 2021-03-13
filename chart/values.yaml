@@ -13,8 +13,10 @@ replicaCount: 1
 ## Name of the ASP.NET Core environment (allows config changes via appsettings.ENVIRONMENT.json)
 environment: Production
 
-## Port on which to bind for the ingress controller. NodePort always used.
-nodePort: 30030
+## Ports on which to bind for the ingress controller. NodePort always used.
+nodePorts:
+  http: 30030
+  https: 30443
 
 ## Name of the ingress class to route through this controller. NOT YET SUPPORTED!
 ingressClass: dotnet

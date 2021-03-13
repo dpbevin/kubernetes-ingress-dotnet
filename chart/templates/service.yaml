@@ -13,10 +13,15 @@ spec:
   type: NodePort
   ports:
     - port: 80
-      nodePort: {{ .Values.nodePort }}
+      nodePort: {{ .Values.nodePorts.http }}
       targetPort: http
       protocol: TCP
       name: http
+    - port: 443
+      nodePort: {{ .Values.nodePorts.https }}
+      targetPort: https
+      protocol: TCP
+      name: https
   selector:
     app.kubernetes.io/name: ingress-dotnet
     app.kubernetes.io/instance: {{ .Release.Name }}
