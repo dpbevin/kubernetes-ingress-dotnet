@@ -21,6 +21,7 @@ namespace KubernetesIngressDotNet
             Host.CreateDefaultBuilder(args)
                 .ConfigureLogging(logging =>
                 {
+                    logging.ClearProviders();
                     logging.AddSystemdConsole();
                 })
                 .ConfigureWebHostDefaults(webBuilder =>
