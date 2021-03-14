@@ -100,6 +100,11 @@ namespace Bevo.ReverseProxy.Kube
                     _leaderEvent.Reset();
                 };
 
+                leaderElector.OnNewLeader += leader =>
+                {
+                    _logger.LogInformation($"New leader elected. Identity={leader}");
+                };
+
                 while (!stoppingToken.IsCancellationRequested)
                 {
                     leaderElector.RunAsync().Wait(stoppingToken);
