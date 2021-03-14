@@ -42,9 +42,12 @@ namespace Microsoft.Extensions.DependencyInjection
                 return client;
             });
 
+            builder.Services.AddSingleton<IKubeResourceStore, KubeResourceStore>();
+
             builder.Services.AddSingleton<IEventRecorder, EventRecorder>();
             builder.Services.AddSingleton<Channel<KubeEvent>>(Channel.CreateBounded<KubeEvent>(500));
             builder.Services.AddHostedService<EventBroadcaster>();
+            builder.Services.AddHostedService<StatusReporterService>();
         }
 
         private static KubernetesClientConfiguration LocateKubeConfig()

@@ -3,6 +3,8 @@
 // This software is released under the MIT License.
 // https://opensource.org/licenses/MIT
 
+using System;
+
 namespace Bevo.ReverseProxy.Kube
 {
     public interface IControllerConfiguration
@@ -12,5 +14,9 @@ namespace Bevo.ReverseProxy.Kube
         string PodName { get; }
 
         string PublishService { get; }
+
+        string ElectionConfigMapName { get; }
+
+        TimeSpan StatusReportInterval { get; }
     }
 }

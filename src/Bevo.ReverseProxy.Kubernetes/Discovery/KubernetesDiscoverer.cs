@@ -18,11 +18,13 @@ using Newtonsoft.Json;
 
 namespace Bevo.ReverseProxy.Kube
 {
-    public class KubernetesDiscoverer : IKubernetesDiscoverer, IDisposable
+    public class KubernetesDiscoverer : IKubernetesDiscoverer
     {
         private const string MatchingIngressClass = "dotnet";
 
         private readonly ILogger<KubernetesDiscoverer> _logger;
+
+        private readonly IKubeResourceStore _store;
 
         private readonly IEventRecorder _eventRecorder;
 
@@ -30,15 +32,13 @@ namespace Bevo.ReverseProxy.Kube
 
         private readonly IConfigValidator _configValidator;
 
-        private readonly IControllerConfiguration _configuration;
-
-        public KubernetesDiscoverer(IConfigValidator configValidator, IKubernetes kubernetesClient, IEventRecorder eventRecorder, IControllerConfiguration configuration, ILogger<KubernetesDiscoverer> logger)
+        public KubernetesDiscoverer(IConfigValidator configValidator, IKubernetes kubernetesClient, IKubeResourceStore store, IEventRecorder eventRecorder, ILogger<KubernetesDiscoverer> logger)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _store = store ?? throw new ArgumentNullException(nameof(store));
             _configValidator = configValidator ?? throw new ArgumentNullException(nameof(configValidator));
             _eventRecorder = eventRecorder ?? throw new ArgumentNullException(nameof(eventRecorder));
             _client = kubernetesClient ?? throw new ArgumentNullException(nameof(kubernetesClient));
-            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
         }
 
         public async Task<DiscoveredItems> DiscoverAsync(CancellationToken cancellation)
@@ -129,47 +129,8 @@ namespace Bevo.ReverseProxy.Kube
                 }
             }
 
-            await ReportStatus(ingresses, cancellation);
-
             Log.ServiceDiscovered(_logger, discoveredClusters.Count, discoveredRoutes.Count);
             return new DiscoveredItems(discoveredRoutes, discoveredClusters.Values.ToList());
-        }
-
-        public void Dispose()
-        {
-            _client?.Dispose();
-        }
-
-        private async Task ReportStatus(IEnumerable<IngressModel> ingresses, CancellationToken cancellation)
-        {
-            var matchedServiceInfo = await _client.ListNamespacedServiceAsync(_configuration.PodNamespace, fieldSelector: $"metadata.name={_configuration.PublishService}", cancellationToken: cancellation);
-            var myServiceInfo = matchedServiceInfo?.Items?.FirstOrDefault();
-            if (myServiceInfo == null)
-            {
-                _logger.LogError("Failed to locate my service {service}/{namespace}", _configuration.PublishService, _configuration.PodNamespace);
-                return;
-            }
-
-            foreach (var ingress in ingresses)
-            {
-                _logger.LogInformation(
-                    "Updating Ingress status: namespace=\"{namespace}\" ingress=\"{ingress}, currentValue={currentValue}, newValue={newValue}",
-                    ingress.Namespace,
-                    ingress.Name,
-                    JsonConvert.SerializeObject(ingress.Original.Status.LoadBalancer.Ingress),
-                    JsonConvert.SerializeObject(myServiceInfo.Status.LoadBalancer.Ingress));
-
-                try
-                {
-                    ingress.Original.Status.LoadBalancer.Ingress = myServiceInfo.Status.LoadBalancer.Ingress;
-
-                    await _client.ReplaceNamespacedIngressStatus1Async(ingress.Original, name: ingress.Name, namespaceParameter: ingress.Namespace, cancellationToken: cancellation);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "failed to patch ingress status for {ingress}/{namespace}", ingress.Name, ingress.Namespace);
-                }
-            }
         }
 
         private Cluster BuildCluster(string clusterId, ServicePortModel sp, V1Endpoints endpoints) // V1EndpointPort port, V1EndpointSubset subset)

@@ -14,5 +14,9 @@ namespace Bevo.ReverseProxy.Kube
         public string PodName => Environment.GetEnvironmentVariable("POD_NAME");
 
         public string PublishService => Environment.GetEnvironmentVariable("PUBLISH_SERVICE");
+
+        public string ElectionConfigMapName => "ingress-controller-leader-dotnet";
+
+        public TimeSpan StatusReportInterval => TimeSpan.FromSeconds(60);
     }
 }
