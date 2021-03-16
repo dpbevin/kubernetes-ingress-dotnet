@@ -22,6 +22,16 @@ namespace Bevo.ReverseProxy.Kube
             };
         }
 
+        public static string LegacyIngressClass(this V1Ingress ingress)
+        {
+            if (ingress != null && ingress.Metadata.Annotations.TryGetValue("kubernetes.io/ingress.class", out var legacyIngressClass))
+            {
+                return legacyIngressClass;
+            }
+
+            return null;
+        }
+
         public static IngressRule ToModel(this V1IngressRule rule)
         {
             return new IngressRule

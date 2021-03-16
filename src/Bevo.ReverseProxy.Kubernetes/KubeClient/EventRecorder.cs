@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 using k8s.Models;
+using Microsoft.Extensions.Logging;
 
 namespace Bevo.ReverseProxy.Kube
 {
@@ -15,9 +16,12 @@ namespace Bevo.ReverseProxy.Kube
     {
         private readonly Channel<KubeEvent> _channel;
 
-        public EventRecorder(Channel<KubeEvent> channel)
+        private readonly ILogger _logger;
+
+        public EventRecorder(Channel<KubeEvent> channel, ILogger<EventRecorder> logger)
         {
             _channel = channel;
+            _logger = logger;
         }
 
         public async ValueTask CreateEvent(V1ObjectReference runtimeObject, KubeEvent.EventType eventType, string reason, string message, CancellationToken cancellation)
@@ -30,6 +34,8 @@ namespace Bevo.ReverseProxy.Kube
                 Reason = reason,
                 Message = message,
             };
+
+            _logger.LogInformation($"Event(Kind={runtimeObject.Kind}, Resource={runtimeObject.NamespaceProperty}/{runtimeObject.Name}, UID={runtimeObject.Uid}, APIVersion={runtimeObject.ApiVersion}, ResourceVersion={runtimeObject.ResourceVersion}, type={eventType}, reason='{reason}', '{message}')");
 
             await _channel.Writer.WriteAsync(kubeEvent, cancellation);
         }

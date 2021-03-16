@@ -6,10 +6,10 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Primitives;
 using Microsoft.ReverseProxy.Abstractions;
 using Microsoft.ReverseProxy.Service;
@@ -20,31 +20,47 @@ namespace Bevo.ReverseProxy.Kube
     public class KubernetesConfigProvider : IProxyConfigProvider, IAsyncDisposable
     {
         private readonly object _lockObject = new object();
-        private readonly ILogger<KubernetesConfigProvider> _logger;
-        private readonly IClock _clock;
-        private readonly IKubernetesDiscoverer _discoverer;
-        private readonly IOptionsMonitor<KubernetesDiscoveryOptions> _optionsMonitor;
 
-        private volatile ConfigurationSnapshot _snapshot;
-        private CancellationTokenSource _changeToken;
-        private bool _disposed;
+        private readonly ILogger<KubernetesConfigProvider> _logger;
 
         private readonly CancellationTokenSource _backgroundCts;
+
+        private readonly IKubeResourceStore _kubeStore;
+
         private readonly Task _backgroundTask;
 
-        public KubernetesConfigProvider(
-            ILogger<KubernetesConfigProvider> logger,
-            IClock clock,
-            IKubernetesDiscoverer discoverer,
-            IOptionsMonitor<KubernetesDiscoveryOptions> optionsMonitor)
+        private readonly Debouncer _debouncer;
+
+        private readonly ManualResetEventSlim _changeSignal = new ManualResetEventSlim(true);   // Check for ingresses on startup.
+
+        private volatile ConfigurationSnapshot _snapshot;
+
+        private CancellationTokenSource _changeToken;
+
+        private bool _disposed;
+
+        private string runningConfigurationHash;
+
+
+        public KubernetesConfigProvider(IKubeResourceStore kubeStore, ILogger<KubernetesConfigProvider> logger)
         {
+            _kubeStore = kubeStore ?? throw new ArgumentNullException(nameof(kubeStore));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _clock = clock ?? throw new ArgumentNullException(nameof(clock));
-            _discoverer = discoverer ?? throw new ArgumentNullException(nameof(discoverer));
-            _optionsMonitor = optionsMonitor ?? throw new ArgumentNullException(nameof(optionsMonitor));
 
             _backgroundCts = new CancellationTokenSource();
             _backgroundTask = KubernetesDiscoveryLoop();
+
+            _debouncer = new Debouncer(TimeSpan.FromMilliseconds(750));
+
+            // Wait for changes from the store (but debounce).
+            ChangeToken.OnChange<object>(
+                () => _kubeStore.ChangeToken,
+                _ => _debouncer.Debounce(() =>
+                {
+                    _logger.LogInformation("Kube Changed");
+                    _changeSignal.Set();
+                }),
+                null);
         }
 
         public IProxyConfig GetConfig()
@@ -73,6 +89,7 @@ namespace Bevo.ReverseProxy.Kube
                 _disposed = true;
 
                 _changeToken?.Dispose();
+                _changeSignal?.Dispose();
 
                 // Stop discovery loop...
                 _backgroundCts.Cancel();
@@ -87,19 +104,28 @@ namespace Bevo.ReverseProxy.Kube
 
             var cancellation = _backgroundCts.Token;
 
+            // Initial delay
+            await Task.Delay(500, cancellation);
+
             while (true)
             {
                 try
                 {
+                    // Wait for changes to be detected
+                    _changeSignal.Wait(cancellation);
+                    _changeSignal.Reset();
                     cancellation.ThrowIfCancellationRequested();
 
-                    var result = await _discoverer.DiscoverAsync(cancellation);
-                    if (result != null)
+                    // Process the Kubernetes configuration - take a copy in case items are added while we're processing
+                    var ingresses = _kubeStore.Ingresses.ToArray();
+
+                    var result = await _kubeStore.GetBackendConfiguration(ingresses, cancellation);
+
+                    if (runningConfigurationHash != result.ConfigurationHash)
                     {
                         UpdateSnapshot(result.Routes, result.Clusters);
+                        runningConfigurationHash = result.ConfigurationHash;
                     }
-
-                    await _clock.Delay(_optionsMonitor.CurrentValue.DiscoveryPeriod, cancellation);
                 }
                 catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
                 {

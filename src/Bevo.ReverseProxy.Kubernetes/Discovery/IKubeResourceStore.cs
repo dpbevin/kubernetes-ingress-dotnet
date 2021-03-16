@@ -4,6 +4,9 @@
 // https://opensource.org/licenses/MIT
 
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Primitives;
 
 namespace Bevo.ReverseProxy.Kube
 {
@@ -11,6 +14,8 @@ namespace Bevo.ReverseProxy.Kube
     {
         IEnumerable<IngressModel> Ingresses { get; }
 
-        string GetBackendConfiguration();
+        IChangeToken ChangeToken { get; }
+
+        Task<BackendConfiguration> GetBackendConfiguration(IEnumerable<IngressModel> ingresses, CancellationToken cancellation);
     }
 }
