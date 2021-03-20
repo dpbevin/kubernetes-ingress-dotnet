@@ -129,7 +129,7 @@ namespace Bevo.ReverseProxy.Kube
 
             foreach (var ingress in ingresses)
             {
-                _logger.LogInformation(
+                _logger.LogTrace(
                     "Updating Ingress status: namespace=\"{namespace}\" ingress=\"{ingress}, currentValue={currentValue}, newValue={newValue}",
                     ingress.Namespace,
                     ingress.Name,
