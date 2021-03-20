@@ -30,9 +30,17 @@ namespace Bevo.ReverseProxy.Kube
 
         private readonly CancellationTokenSource _backgroundCts;
 
-        private readonly Task _backgroundTask;
+        private readonly Task _watchIngressesTask;
+
+        private readonly Task _watchServicesTask;
+
+        private readonly Task _watchEndpointsTask;
 
         private readonly ConcurrentDictionary<string, IngressModel> _ingresses = new ConcurrentDictionary<string, IngressModel>();
+
+        private readonly ConcurrentDictionary<string, V1Service> _services = new ConcurrentDictionary<string, V1Service>();
+
+        private readonly ConcurrentDictionary<string, V1Endpoints> _endpoints = new ConcurrentDictionary<string, V1Endpoints>();
 
         private ConfigurationReloadToken _changeToken = new ConfigurationReloadToken();
 
@@ -43,7 +51,9 @@ namespace Bevo.ReverseProxy.Kube
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
             _backgroundCts = new CancellationTokenSource();
-            _backgroundTask = Run();
+            _watchIngressesTask = WatchIngresses();
+            _watchServicesTask = WatchServices();
+            _watchEndpointsTask = WatchServiceEndpoints();
         }
 
         public IEnumerable<IngressModel> Ingresses => _ingresses.Values;
@@ -52,6 +62,15 @@ namespace Bevo.ReverseProxy.Kube
 
         public async Task<V1Endpoints> GetEndpoint(string namespaceName, string serviceName, CancellationToken cancellation)
         {
+            var key = $"{namespaceName}/{serviceName}";
+
+            if (_endpoints.TryGetValue(key, out var matchedEndpoint))
+            {
+                return matchedEndpoint;
+            }
+
+            _logger.LogTrace($"Endpoint cache miss for key {key}");
+
             var endpoints = await _client.ListNamespacedEndpointsAsync(
                 namespaceParameter: namespaceName,
                 fieldSelector: $"metadata.name={serviceName}",
@@ -62,6 +81,15 @@ namespace Bevo.ReverseProxy.Kube
 
         public async Task<V1Service> GetService(string namespaceName, string serviceName, CancellationToken cancellation)
         {
+            var key = $"{namespaceName}/{serviceName}";
+
+            if (_services.TryGetValue(key, out var matchedService))
+            {
+                return matchedService;
+            }
+
+            _logger.LogTrace($"Service cache miss for key {key}");
+
             var k8sService = await _client.ListNamespacedServiceAsync(
                 namespaceParameter: namespaceName,
                 fieldSelector: $"metadata.name={serviceName}",
@@ -73,7 +101,9 @@ namespace Bevo.ReverseProxy.Kube
 
         public void Dispose()
         {
-            _backgroundTask.Dispose();
+            _watchIngressesTask?.Dispose();
+            _watchEndpointsTask?.Dispose();
+            _watchServicesTask?.Dispose();
             _backgroundCts?.Dispose();
         }
 
@@ -83,7 +113,7 @@ namespace Bevo.ReverseProxy.Kube
             previousToken.OnReload();
         }
 
-        private async Task Run()
+        private async Task WatchIngresses()
         {
             var cancellation = _backgroundCts.Token;
 
@@ -112,19 +142,109 @@ namespace Bevo.ReverseProxy.Kube
                         }
                     }))
                     {
-                        _logger.LogTrace("Store waiting for 5 minutes");
+                        _logger.LogTrace("Ingress store waiting for 5 minutes");
                         await Task.Delay(TimeSpan.FromMinutes(5), cancellation);
                     }
                 }
                 catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
                 {
                     // Graceful shutdown
-                    _logger.LogInformation("Shutting down");
+                    _logger.LogInformation("Ingress store shutting down");
                     return;
                 }
                 catch (Exception ex)
                 {
                     _logger.LogTrace(ex, "Ingress watch failed");
+                }
+            }
+        }
+
+        private async Task WatchServices()
+        {
+            var cancellation = _backgroundCts.Token;
+
+            while (true)
+            {
+                try
+                {
+                    cancellation.ThrowIfCancellationRequested();
+
+                    var servicesResponse = _client.ListServiceForAllNamespacesWithHttpMessagesAsync(watch: true, cancellationToken: cancellation);
+                    using (servicesResponse.Watch<V1Service, V1ServiceList>((type, item) =>
+                    {
+                        var key = $"{item.Metadata.NamespaceProperty}/{item.Metadata.Name}";
+
+                        switch (type)
+                        {
+                            case WatchEventType.Modified:
+                            case WatchEventType.Added:
+                                _services.AddOrUpdate(key, a => item, (s, u) => item);
+                                break;
+
+                            case WatchEventType.Deleted:
+                                _services.TryRemove(key, out var dummy);
+                                break;
+                        }
+                    }))
+                    {
+                        _logger.LogTrace("Service store waiting for 5 minutes");
+                        await Task.Delay(TimeSpan.FromMinutes(5), cancellation);
+                    }
+                }
+                catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+                {
+                    // Graceful shutdown
+                    _logger.LogInformation("Service store shutting down");
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Service watch failed");
+                }
+            }
+        }
+
+        private async Task WatchServiceEndpoints()
+        {
+            var cancellation = _backgroundCts.Token;
+
+            while (true)
+            {
+                try
+                {
+                    cancellation.ThrowIfCancellationRequested();
+
+                    var serviceEndpointsResponse = _client.ListEndpointsForAllNamespacesWithHttpMessagesAsync(watch: true, cancellationToken: cancellation);
+                    using (serviceEndpointsResponse.Watch<V1Endpoints, V1EndpointsList>((type, item) =>
+                    {
+                        var key = $"{item.Metadata.NamespaceProperty}/{item.Metadata.Name}";
+
+                        switch (type)
+                        {
+                            case WatchEventType.Modified:
+                            case WatchEventType.Added:
+                                _endpoints.AddOrUpdate(key, a => item, (s, u) => item);
+                                break;
+
+                            case WatchEventType.Deleted:
+                                _endpoints.TryRemove(key, out var dummy);
+                                break;
+                        }
+                    }))
+                    {
+                        _logger.LogTrace("Endpoints store waiting for 5 minutes");
+                        await Task.Delay(TimeSpan.FromMinutes(5), cancellation);
+                    }
+                }
+                catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+                {
+                    // Graceful shutdown
+                    _logger.LogInformation("Endpoints store shutting down");
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Endpoints watch failed");
                 }
             }
         }
