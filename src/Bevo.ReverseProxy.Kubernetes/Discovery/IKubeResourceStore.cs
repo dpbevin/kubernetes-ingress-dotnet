@@ -6,16 +6,19 @@
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using k8s.Models;
 using Microsoft.Extensions.Primitives;
 
 namespace Bevo.ReverseProxy.Kube
 {
     public interface IKubeResourceStore
     {
-        IEnumerable<IngressModel> Ingresses { get; }
-
         IChangeToken ChangeToken { get; }
 
-        Task<BackendConfiguration> GetBackendConfiguration(IEnumerable<IngressModel> ingresses, CancellationToken cancellation);
+        IEnumerable<IngressModel> Ingresses { get; }
+
+        Task<V1Endpoints> GetEndpoint(string namespaceName, string serviceName, CancellationToken cancellation);
+
+        Task<V1Service> GetService(string namespaceName, string serviceName, CancellationToken cancellation);
     }
 }

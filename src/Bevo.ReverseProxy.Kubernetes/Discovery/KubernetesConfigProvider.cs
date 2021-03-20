@@ -6,14 +6,12 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Primitives;
 using Microsoft.ReverseProxy.Abstractions;
 using Microsoft.ReverseProxy.Service;
-using Microsoft.ReverseProxy.Utilities;
 
 namespace Bevo.ReverseProxy.Kube
 {
@@ -25,7 +23,7 @@ namespace Bevo.ReverseProxy.Kube
 
         private readonly CancellationTokenSource _backgroundCts;
 
-        private readonly IKubeResourceStore _kubeStore;
+        private readonly IIngressController _controller;
 
         private readonly Task _backgroundTask;
 
@@ -42,9 +40,9 @@ namespace Bevo.ReverseProxy.Kube
         private string runningConfigurationHash;
 
 
-        public KubernetesConfigProvider(IKubeResourceStore kubeStore, ILogger<KubernetesConfigProvider> logger)
+        public KubernetesConfigProvider(IIngressController controller, ILogger<KubernetesConfigProvider> logger)
         {
-            _kubeStore = kubeStore ?? throw new ArgumentNullException(nameof(kubeStore));
+            _controller = controller ?? throw new ArgumentNullException(nameof(controller));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
             _backgroundCts = new CancellationTokenSource();
@@ -54,7 +52,7 @@ namespace Bevo.ReverseProxy.Kube
 
             // Wait for changes from the store (but debounce).
             ChangeToken.OnChange<object>(
-                () => _kubeStore.ChangeToken,
+                () => _controller.ChangeToken,
                 _ => _debouncer.Debounce(() =>
                 {
                     _logger.LogInformation("Kube Changed");
@@ -116,10 +114,7 @@ namespace Bevo.ReverseProxy.Kube
                     _changeSignal.Reset();
                     cancellation.ThrowIfCancellationRequested();
 
-                    // Process the Kubernetes configuration - take a copy in case items are added while we're processing
-                    var ingresses = _kubeStore.Ingresses.ToArray();
-
-                    var result = await _kubeStore.GetBackendConfiguration(ingresses, cancellation);
+                    var result = await _controller.GetConfiguration(cancellation);
 
                     if (runningConfigurationHash != result.ConfigurationHash)
                     {

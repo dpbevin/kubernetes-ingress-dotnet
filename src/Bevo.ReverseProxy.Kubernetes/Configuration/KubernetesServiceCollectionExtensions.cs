@@ -42,7 +42,7 @@ namespace Microsoft.Extensions.DependencyInjection
             });
 
             builder.Services.AddSingleton<IKubeResourceStore, KubeResourceStore>();
-
+            builder.Services.AddSingleton<IIngressController, IngressController>();
             builder.Services.AddSingleton<IEventRecorder, EventRecorder>();
             builder.Services.AddSingleton<Channel<KubeEvent>>(Channel.CreateBounded<KubeEvent>(500));
             builder.Services.AddHostedService<EventBroadcaster>();

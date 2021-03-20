@@ -48,7 +48,7 @@ namespace Bevo.ReverseProxy.Kube
                 Path = path.Path,
                 PathType = ParsePathType(path.PathType),
                 BackendServiceName = path.Backend?.Service.Name,
-                BackendServicePort = path.Backend?.Service.Port.Number?.ToString("F", CultureInfo.InvariantCulture),
+                BackendServicePort = path.Backend?.Service.Port.Number?.ToString("D", CultureInfo.InvariantCulture),
             };
         }
 
