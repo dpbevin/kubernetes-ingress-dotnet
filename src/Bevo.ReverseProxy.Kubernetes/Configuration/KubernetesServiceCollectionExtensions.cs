@@ -30,7 +30,6 @@ namespace Microsoft.Extensions.DependencyInjection
 
         private static void AddServices(IReverseProxyBuilder builder)
         {
-            builder.Services.AddSingleton<IKubernetesDiscoverer, KubernetesDiscoverer>();
             builder.Services.AddSingleton<IProxyConfigProvider, KubernetesConfigProvider>();
             builder.Services.AddSingleton<IControllerConfiguration, ControllerConfiguration>();
             builder.Services.AddSingleton<IBindingPortManagement, KubernetesBindingPortManagement>();
