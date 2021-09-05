@@ -1,5 +1,7 @@
 # .NET Kubernetes Ingress Controller
 
+I'm archiving this repo. I'm going to contribute to the larger https://github.com/microsoft/reverse-proxy repo that this is based on now that initial Kubernetes support has been added.
+
 [![Dockerize .NET](https://github.com/dpbevin/kubernetes-ingress-dotnet/actions/workflows/dotnet.yml/badge.svg)](https://github.com/dpbevin/kubernetes-ingress-dotnet/actions/workflows/dotnet.yml) [![Linter](https://github.com/dpbevin/kubernetes-ingress-dotnet/actions/workflows/lint.yml/badge.svg)](https://github.com/dpbevin/kubernetes-ingress-dotnet/actions/workflows/lint.yml)
 
 This project takes a .NET 5 (formerly .NET Core)-based reverse proxy and combines it with a Kubernetes client to form a highly scalable Ingress Controller.
